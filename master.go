@@ -20,7 +20,6 @@ type MasterServer struct {
 // RPC call handler
 func (ms *MasterServer) Heartbeat(args *HeartbeatArgs,
                                   reply *HeartbeatReply) error {
-  fmt.Println("RPC handler")
   reply.Reply = "Hello, world."
   return nil
 }
@@ -44,7 +43,6 @@ func (ms *MasterServer) Kill() {
 // tick() is called once per PingInterval to
 // handle background tasks
 func (ms *MasterServer) tick() {
-  fmt.Println("Background tasks...")
 }
 
 func StartMasterServer(me string) *MasterServer {
