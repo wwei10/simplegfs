@@ -5,6 +5,7 @@ import (
   "log"
   "net"
   "net/rpc"
+  "sync"
   "time"
 )
 
@@ -12,6 +13,8 @@ type MasterServer struct {
   dead bool
   l net.Listener
   me string // Server address
+  clientId uint64 // Client ID
+  mutex sync.RWMutex
 }
 
 // RPC call handler
@@ -19,6 +22,15 @@ func (ms *MasterServer) Heartbeat(args *HeartbeatArgs,
                                   reply *HeartbeatReply) error {
   fmt.Println("RPC handler")
   reply.Reply = "Hello, world."
+  return nil
+}
+
+func (ms *MasterServer) NewClientId(args *struct{},
+                                    reply *NewClientIdReply) error {
+  ms.mutex.Lock()
+  defer ms.mutex.Unlock()
+  reply.ClientId = ms.clientId
+  ms.clientId++
   return nil
 }
 

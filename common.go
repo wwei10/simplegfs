@@ -17,6 +17,10 @@ type HeartbeatReply struct {
   Reply string
 }
 
+type NewClientIdReply struct {
+  ClientId uint64
+}
+
 // Helper functions
 func call(srv string, rpcname string,
           args interface{}, reply interface{}) bool {
