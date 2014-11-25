@@ -6,9 +6,12 @@ import (
   "time"
 )
 
+const ChunkSize = 64 * (1 << 20)
 const HeartbeatInterval = 100 * time.Millisecond
 
 // Message types
+
+// Master server RPC
 type HeartbeatArgs struct {
   Addr string
 }
@@ -19,6 +22,26 @@ type HeartbeatReply struct {
 
 type NewClientIdReply struct {
   ClientId uint64
+}
+
+type FindLocationsArgs struct {
+  Path string
+  ChunkIndex uint64
+}
+
+type FindLocationsReply struct {
+  ChunkHandle uint64
+  ChunkLocations []string
+}
+
+// Chunkserver RPC
+type WriteArgs struct {
+  ChunkHandle uint64
+  Offset uint64
+  Bytes []byte
+}
+
+type WriteReply struct {
 }
 
 // Helper functions
