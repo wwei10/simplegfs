@@ -44,6 +44,16 @@ type WriteArgs struct {
 type WriteReply struct {
 }
 
+type ReadArgs struct {
+  ChunkHandle uint64
+  Offset uint64
+  Length uint64
+}
+
+type ReadReply struct {
+  Bytes []byte
+}
+
 // Helper functions
 func call(srv string, rpcname string,
           args interface{}, reply interface{}) bool {

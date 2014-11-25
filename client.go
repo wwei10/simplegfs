@@ -20,6 +20,8 @@ func NewClient(masterAddr string) *Client {
 }
 
 // Client APIs
+
+// Create a file
 func (c *Client) Create(path string) bool {
   // TODO: Error handling
   reply := new(bool)
@@ -27,6 +29,7 @@ func (c *Client) Create(path string) bool {
   return *reply
 }
 
+// Write file at a specific offset
 func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
   // TODO: Split one write into multiple RPC
   length := uint64(len(bytes))
@@ -46,6 +49,52 @@ func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
     startIdx += endOffset - startOffset
   }
   return true
+}
+
+// Read file at a specific offset
+func (c *Client) Read(path string, offset uint64, length uint64) ([]byte, error) {
+  startChunkIndex := offset / ChunkSize
+  endChunkIndex := (offset + length) / ChunkSize
+  startIdx := uint64(0) // start index at a chunk
+  bytes := make([]byte, length)
+  for i := startChunkIndex; i <= endChunkIndex; i++ {
+    startOffset := uint64(0)
+    endOffset := uint64(ChunkSize)
+    if i == startChunkIndex {
+      startOffset = offset % ChunkSize
+    }
+    if i == endChunkIndex {
+      endOffset = (offset + length) % ChunkSize
+    }
+    // TODO: Call helper function to read
+    b, err := c.read(path, startOffset, endOffset)
+    if err != nil {
+      return bytes, err
+    }
+    for j := 0; j < len(b); j++ {
+      bytes[int(startIdx) + j] = b[j]
+    }
+    startIdx += endOffset - startOffset
+  }
+  return bytes, nil
+}
+
+func (c *Client) read(path string, start uint64, end uint64) ([]byte, error) {
+  chunkindex := start / ChunkSize
+  // Get chunkhandle and locations
+  // TODO: Cache chunk handle and location
+  fmt.Println(c.clientId, "read", path, start, end)
+  reply := c.findChunkLocations(path, chunkindex)
+  cs := reply.ChunkLocations[0] // TODO: Use random location for load balance
+  // TODO: Fault tolerance (e.g. chunk server down)
+  args := ReadArgs{
+    ChunkHandle: reply.ChunkHandle,
+    Offset: start,
+    Length: end - start,
+  }
+  resp := new(ReadReply)
+  call(cs, "ChunkServer.Read", args, resp)
+  return resp.Bytes, nil // TODO: Error handling
 }
 
 func (c *Client) write(path string, start uint64, end uint64, bytes []byte) bool {

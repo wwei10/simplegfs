@@ -34,6 +34,26 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   return nil
 }
 
+func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReply) error {
+  fmt.Println(cs.me, "Read RPC.")
+  chunkhandle := args.ChunkHandle
+  off := int64(args.Offset)
+  length := args.Length
+  bytes := make([]byte, length)
+  filename := fmt.Sprintf("%d", chunkhandle)
+  file, err := os.Open(cs.path + "/" + filename)
+  if err != nil {
+    log.Fatal(err)
+  }
+  defer file.Close()
+  _, err = file.ReadAt(bytes, off)
+  if err != nil {
+    log.Fatal(err)
+  }
+  reply.Bytes = bytes
+  return nil
+}
+
 // Kill for testing.
 func (cs *ChunkServer) Kill() {
   cs.dead = true

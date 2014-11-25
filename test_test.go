@@ -36,7 +36,7 @@ func TestCreate(t *testing.T) {
   ms.Kill()
 }
 
-func TestWrite(t *testing.T) {
+func TestReadWrite(t *testing.T) {
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
 
@@ -53,6 +53,12 @@ func TestWrite(t *testing.T) {
     t.Error("c should create '/a' successfully.")
   }
   c.Write("/a", 0, []byte("hello, world."))
+
+  time.Sleep(HeartbeatInterval)
+
+  if data, _ := c.Read("/a", 0, 13); string(data) != "hello, world." {
+    t.Error("c should read 'hello, world.' actually c reads", string(data))
+  }
 
   time.Sleep(10 * HeartbeatInterval)
   cs1.Kill()
