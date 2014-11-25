@@ -7,6 +7,10 @@ import (
   "net/rpc"
   "sync"
   "time"
+  "os" // For os file operations
+  "strconv" // For string conversion to/from basic data types
+  "bufio" // For reading lines from a file
+  "strings" // For parsing serverMeta
 )
 
 type MasterServer struct {
@@ -15,6 +19,9 @@ type MasterServer struct {
   me string // Server address
   clientId uint64 // Client ID
   mutex sync.RWMutex
+
+  // Filename of a file that contains MasterServer metadata
+  serverMeta string
 }
 
 // RPC call handler
@@ -37,6 +44,7 @@ func (ms *MasterServer) NewClientId(args *struct{},
 // for testing
 func (ms *MasterServer) Kill() {
   ms.dead = true
+  storeServerMeta(ms)
   ms.l.Close()
 }
 
@@ -45,10 +53,77 @@ func (ms *MasterServer) Kill() {
 func (ms *MasterServer) tick() {
 }
 
+// Called by MasterServer.Kill() to write out master metadata before
+// shutting down
+// Can potentially used to checkpoint master's metadata
+//
+// param  - ms: pointer to a MasterServer instance
+// return - none
+func storeServerMeta(ms *MasterServer) {
+  f, er := os.OpenFile(ms.serverMeta, os.O_RDWR|os.O_CREATE, 0666)
+  if er != nil {
+    // TODO Use log instead
+    fmt.Println("Open/Create file ", ms.serverMeta, " failed.")
+  }
+  defer f.Close()
+
+  // Write out clientId
+  bytes, err := f.WriteString("clientId " +
+                              strconv.FormatUint(ms.clientId, 10) + "\n");
+  if err != nil {
+    // TODO Use log instead
+    fmt.Println(er)
+  } else {
+    // TODO Use log instead
+    fmt.Println("Wrote ", bytes, " bytes to serverMeta");
+  }
+}
+
+// Called by StartMasterServer when starting a new MasterServer instance ms,
+// loads serverMeta files into ms.
+//
+// param  - ms: pointer to a MasterServer instance
+// return - none
+func loadServerMeta(ms *MasterServer) {
+  f, err := os.OpenFile(ms.serverMeta, os.O_RDONLY, 0666)
+  if err != nil {
+    fmt.Println("Open file ", ms.serverMeta, " failed.");
+  }
+  defer f.Close()
+  parseServerMeta(ms, f)
+}
+
+// Called by loadServerMeta
+// This function parses each line in serverMeta file and loads each value
+// into its corresponding MasterServer fields
+//
+// param  - ms: pointer to a MasterServer instance
+//          f: point to the file that contains serverMeta
+// return - none
+func parseServerMeta(ms *MasterServer, f *os.File) {
+  scanner := bufio.NewScanner(f)
+  for scanner.Scan() {
+    fields := strings.Fields(scanner.Text())
+    switch fields[0] {
+    case "clientId":
+      var err error
+      ms.clientId, err = strconv.ParseUint(fields[1], 0, 64)
+      if err != nil {
+        log.Fatal("Failed to load clientId into ms.clientId")
+      }
+    default:
+      log.Fatal("Unknown serverMeta key.")
+    }
+  }
+}
+
 func StartMasterServer(me string) *MasterServer {
   ms := &MasterServer{
     me: me,
+    serverMeta: "serverMeta" + me,
   }
+
+  loadServerMeta(ms)
 
   rpcs := rpc.NewServer()
   rpcs.Register(ms)
