@@ -37,6 +37,7 @@ func (ms *MasterServer) NewClientId(args *struct{},
   defer ms.mutex.Unlock()
   reply.ClientId = ms.clientId
   ms.clientId++
+  storeServerMeta(ms)
   return nil
 }
 
@@ -44,7 +45,6 @@ func (ms *MasterServer) NewClientId(args *struct{},
 // for testing
 func (ms *MasterServer) Kill() {
   ms.dead = true
-  storeServerMeta(ms)
   ms.l.Close()
 }
 
@@ -53,9 +53,7 @@ func (ms *MasterServer) Kill() {
 func (ms *MasterServer) tick() {
 }
 
-// Called by MasterServer.Kill() to write out master metadata before
-// shutting down
-// Can potentially used to checkpoint master's metadata
+// Called whenever server's persistent meta data changes.
 //
 // param  - ms: pointer to a MasterServer instance
 // return - none
