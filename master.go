@@ -138,6 +138,23 @@ func storeServerMeta(ms *MasterServer) {
 
   // Write out clientId
   storeClientId(ms, f)
+  // Write out chunkhandle
+  storeChunkhandle(ms, f)
+}
+
+// Store MasterServer.chunkhandle on to MasterServer.serverMeta
+//
+// parram  - ms: a pointer to a MasterServer instance
+//           f: a pointer to os.File serverMeta
+// return - none
+func storeChunkhandle(ms *MasterServer, f *os.File) {
+  n, err := f.WriteString("chunkhandle " +
+                          strconv.FormatUint(ms.chunkhandle, 10) + "\n")
+  if err != nil {
+    fmt.Println(err)
+  } else {
+    fmt.Printf("Wrote %d bytes to serverMeta\n", n)
+  }
 }
 
 // Store MasterServer.clientId on to MasterServer.serverMeta
@@ -147,7 +164,7 @@ func storeServerMeta(ms *MasterServer) {
 // return - none
 func storeClientId(ms *MasterServer, f *os.File) {
   n, err := f.WriteString("clientId " +
-                          strconv.FormatUint(ms.clientId, 10) + "\n");
+                          strconv.FormatUint(ms.clientId, 10) + "\n")
   if err != nil {
     fmt.Println(err)
   } else {
@@ -186,6 +203,12 @@ func parseServerMeta(ms *MasterServer, f *os.File) {
       ms.clientId, err = strconv.ParseUint(fields[1], 0, 64)
       if err != nil {
         log.Fatal("Failed to load clientId into ms.clientId")
+      }
+    case "chunkhandle":
+      var err error
+      ms.chunkhandle, err = strconv.ParseUint(fields[1], 0, 64)
+      if err != nil {
+        log.Fatal("Failed to load chunkhandle into ms.chunkhanle")
       }
     default:
       log.Fatal("Unknown serverMeta key.")
