@@ -27,9 +27,13 @@ type MasterServer struct {
   chunkservers map[string]time.Time
   file2chunkhandle map[string](map[uint64]uint64)
   chunkhandle2locations map[uint64][]string
+  files map[string]*FileInfo // Stores file to information mapping
 }
 
-// RPC call handler
+// RPC call handlers declared here
+
+// Heartbeat RPC handler for interactions between master
+// and chunkservers.
 func (ms *MasterServer) Heartbeat(args *HeartbeatArgs,
                                   reply *HeartbeatReply) error {
   ms.chunkservers[args.Addr] = time.Now()
@@ -37,6 +41,8 @@ func (ms *MasterServer) Heartbeat(args *HeartbeatArgs,
   return nil
 }
 
+// When a new client is attached to the master,
+// it calls NewClientId to get a unique ID.
 func (ms *MasterServer) NewClientId(args *struct{},
                                     reply *NewClientIdReply) error {
   ms.mutex.Lock()
@@ -47,6 +53,7 @@ func (ms *MasterServer) NewClientId(args *struct{},
   return nil
 }
 
+// Client calls Create to create a file in the namespace.
 func (ms *MasterServer) Create(args string,
                                reply *bool) error {
   // TODO: error handling
@@ -59,40 +66,99 @@ func (ms *MasterServer) Create(args string,
     return nil
   }
   ms.file2chunkhandle[args] = make(map[uint64]uint64)
+  ms.files[args] = &FileInfo{}
   *reply = true
   return nil
 }
 
+// Client calls FindLoations to get chunk locations
+// given file name and chunk index.
 func (ms *MasterServer) FindLocations(args FindLocationsArgs,
                                      reply *FindLocationsReply) error {
-  // TODO
+  ms.mutex.Lock()
+  defer ms.mutex.Unlock()
   fmt.Println("Find Locations RPC")
   path := args.Path
   chunkindex := args.ChunkIndex
-  if val, ok := ms.file2chunkhandle[path]; ok {
-    if handle, ok2 := val[chunkindex]; ok2 {
-      reply.ChunkHandle = handle
-      reply.ChunkLocations = ms.chunkhandle2locations[handle]
-      return nil
-    } else {
-      // Chunk index not found, create new entry
-      ms.mutex.Lock()
-      defer ms.mutex.Unlock()
-      handle = ms.chunkhandle
-      ms.chunkhandle++
-      val[chunkindex] = handle
-      reply.ChunkHandle = handle
-      chunklocations := getRandomLocations(ms.chunkservers, 3)
-      fmt.Println("Random chunk locations", chunklocations)
-      ms.chunkhandle2locations[handle] = chunklocations
-      reply.ChunkLocations = chunklocations
-      fmt.Println("chunk index not found")
-      return nil
-    }
-  } else {
+  val, ok := ms.file2chunkhandle[path]
+  if !ok {
     // Filename not found
     return errors.New("file not found")
   }
+  handle, ok2 := val[chunkindex]
+  if !ok2 {
+    // Chunk not found
+    return errors.New("chunk locations not found")
+  }
+  reply.ChunkHandle = handle
+  reply.ChunkLocations = ms.chunkhandle2locations[handle]
+  return nil
+}
+
+// Client calls AddChunk to get a new chunk.
+func (ms *MasterServer) AddChunk(args AddChunkArgs,
+                                 reply *AddChunkReply) error {
+  ms.mutex.Lock()
+  defer ms.mutex.Unlock()
+  fmt.Println(ms.me + " Add chunk RPC")
+  path := args.Path
+  chunkIndex := args.ChunkIndex
+  chunks, ok := ms.file2chunkhandle[path]
+  if !ok {
+    return errors.New("file not found.")
+  }
+  _, ok = chunks[chunkIndex]
+  if ok {
+    return errors.New("chunk already exists")
+  }
+  handle := ms.chunkhandle
+  ms.chunkhandle++
+  chunks[chunkIndex] = handle
+  reply.ChunkHandle = handle
+  chunkLocations := getRandomLocations(ms.chunkservers, 3)
+  ms.chunkhandle2locations[handle] = chunkLocations
+  reply.ChunkLocations = chunkLocations
+  return nil
+}
+
+// Chunk server calls ReportChunk to tell the master
+// they have a certain chunk and the number of defined bytes in
+// the chunk.
+func (ms *MasterServer) ReportChunk(args ReportChunkArgs,
+                                    reply *ReportChunkReply) error {
+  fmt.Println("MasterServer: Report Chunk.")
+  length := args.Length
+  chunkIndex := args.ChunkIndex
+  // chunkHandle := args.ChunkHandle
+  // address := args.ServerAddress
+  path := args.Path
+  // Update file information
+  ms.mutex.Lock()
+  defer ms.mutex.Unlock()
+  info, ok := ms.files[path]
+  if !ok {
+    return errors.New("file not found.")
+  }
+  calculated := int64(ChunkSize * chunkIndex) + length
+  fmt.Println("Result", calculated, "index", chunkIndex, "length", length)
+  if calculated > info.Length {
+    info.Length = calculated
+    fmt.Println("#### New length:", ms.files[path].Length)
+  }
+  return nil
+}
+
+// Get information about a file.
+func (ms *MasterServer) GetFileInfo(args GetFileInfoArgs,
+                                    reply *GetFileInfoReply) error {
+  fmt.Println("MasterServer: GetFileInfo")
+  ms.mutex.RLock()
+  defer ms.mutex.RUnlock()
+  info, ok := ms.files[args.Path]
+  if !ok {
+    return errors.New("file not found.")
+  }
+  reply.Info = *info
   return nil
 }
 
@@ -180,6 +246,7 @@ func StartMasterServer(me string) *MasterServer {
     chunkservers: make(map[string]time.Time),
     file2chunkhandle: make(map[string](map[uint64]uint64)),
     chunkhandle2locations: make(map[uint64][]string),
+    files: make(map[string]*FileInfo),
   }
 
   loadServerMeta(ms)
