@@ -36,7 +36,7 @@ func TestNewClientId(t *testing.T) {
     t.Error("c0's client id should start with 0.")
   }
   time.Sleep(HeartbeatInterval)
-  cid ++
+  cid++
   c1 := NewClient(":4444")
   if c1.clientId != cid {
     t.Error("c1's client id should be 1.")
