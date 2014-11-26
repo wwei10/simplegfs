@@ -6,6 +6,8 @@ import (
   "time"
 )
 
+const FilePermRW = 0666
+const FilePermRWX = 0777
 const HeartbeatInterval = 100 * time.Millisecond
 
 // Message types
