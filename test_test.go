@@ -52,11 +52,11 @@ func TestReadWrite(t *testing.T) {
   if c.Create("/a") != true {
     t.Error("c should create '/a' successfully.")
   }
-  c.Write("/a", 0, []byte("hello, world."))
+  c.Write("/a", 0, []byte("hello, world. nice to meet you."))
 
   time.Sleep(HeartbeatInterval)
 
-  if data, _ := c.Read("/a", 0, 13); string(data) != "hello, world." {
+  if data, _ := c.Read("/a", 0, 31); string(data) != "hello, world. nice to meet you." {
     t.Error("c should read 'hello, world.' actually c reads", string(data))
   }
 
@@ -65,16 +65,6 @@ func TestReadWrite(t *testing.T) {
   cs2.Kill()
   cs3.Kill()
   ms.Kill()
-
-  f1, err := os.Open("/var/tmp/ck1/1")
-  if err != nil {
-    t.Error("Error open file.")
-  }
-  data := make([]byte, 100)
-  cnt, err := f1.Read(data)
-  if string(data[:cnt]) != "hello, world." {
-    t.Error("c should read 'hello, world.' actually read", string(data[:cnt]))
-  }
 
   os.RemoveAll("/var/tmp/ck1")
   os.RemoveAll("/var/tmp/ck2")
