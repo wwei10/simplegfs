@@ -11,6 +11,11 @@ const FilePermRWX = 0777
 const ChunkSize = 64 * (1 << 20)
 const HeartbeatInterval = 100 * time.Millisecond
 
+// Client lease related const
+const ClockDrift = 5 * time.Millisecond
+const SoftLeaseTime = 1 * time.Second
+const HardLeaseTime = 30 * time.Second
+
 // Message types
 
 // Master server RPC
@@ -34,6 +39,15 @@ type FindLocationsArgs struct {
 type FindLocationsReply struct {
   ChunkHandle uint64
   ChunkLocations []string
+}
+
+type LeaseNewArgs struct {
+  ClientId uint64
+  Path string
+}
+
+type LeaseNewReply struct {
+  SoftLimit time.Time
 }
 
 // Chunkserver RPC

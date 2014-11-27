@@ -39,8 +39,8 @@ type MasterServer struct {
 
 // Client lease management
 type clientLease struct {
-  clientId uint64 // The client who holds the lease before softLease
-  softLimit time.Time // The lease ends at softLease, can be extended
+  clientId uint64 // The client who holds the lease before softLimit expires
+  softLimit time.Time // The lease ends at softLimit, can be extended
   hardLimit time.Time // The hard limit on how long a client can have the lease
 }
 
@@ -79,7 +79,7 @@ func (ms *MasterServer) Create(args string,
 }
 
 func (ms *MasterServer) FindLocations(args FindLocationsArgs,
-                                     reply *FindLocationsReply) error {
+                                      reply *FindLocationsReply) error {
   // TODO
   fmt.Println("Find Locations RPC")
   path := args.Path
@@ -108,6 +108,38 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
     // Filename not found
     return errors.New("file not found")
   }
+  return nil
+}
+
+// MasterServer.LeaseNew
+//
+// Handles RPC calls from client who requests a new lease on a file.
+// A lease can only be granted if the client is not currently holding the
+// lease, and no one else is currently holding the lease.
+// A client who is currently holding the lease should call
+// MasterServer.LeaseExtension instead.
+//
+// param  - args: a LeaseNewArgs which contains a clientId and a filename
+//          reply: a LeaseNewReply which contains a softLimit indicating how
+//                 long does the client has the lease
+// return - appropriate error if any, nil otherwise
+func (ms *MasterServer) LeaseNew(args LeaseNewArgs,
+                                 reply *LeaseNewReply) error {
+  path := args.Path
+  clientId := args.ClientId
+  val, ok := ms.file2ClientLease[path]
+  // Check to see if anyone(including the requesting client) is currently
+  // holding a lease to the requested file.
+  if ok && time.Now().Before(val.softLimit) {
+    return errors.New("Lease held by other client.")
+  }
+  val = clientLease{
+    clientId: clientId,
+    softLimit: time.Now().Add(SoftLeaseTime),
+    hardLimit: time.Now().Add(HardLeaseTime),
+  }
+  ms.file2ClientLease[path] = val
+  reply.softLimit = val.softLimit
   return nil
 }
 

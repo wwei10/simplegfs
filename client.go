@@ -2,11 +2,13 @@ package simplegfs
 
 import (
   "fmt"
+  "time"
 )
 
 type Client struct {
   masterAddr string
   clientId uint64
+  file2Lease map[string]time.Time
 }
 
 func NewClient(masterAddr string) *Client {
