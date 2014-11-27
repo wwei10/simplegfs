@@ -40,8 +40,8 @@ type MasterServer struct {
 // Client lease management
 type clientLease struct {
   clientId uint64 // The client who holds the lease before softLease
-  softLease time.Time // The lease ends at softLease, can be extended
-  hardLease time.Time // The hard limit on how long a client can have the lease
+  softLimit time.Time // The lease ends at softLease, can be extended
+  hardLimit time.Time // The hard limit on how long a client can have the lease
 }
 
 // RPC call handler

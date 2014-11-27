@@ -77,7 +77,7 @@ func (cs *ChunkServer) Kill() {
 // param  - c: a pointer to a ChunkServer instance
 // return - none
 func loadChunkServerMeta (c *ChunkServer) {
-  f, err := os.OpenFile(c.chunkServerMeta, os.O_RDONLY, FilePermRW)
+  f, err := os.Open(c.chunkServerMeta)
   if err != nil {
     fmt.Println("Open file ", c.chunkServerMeta, " failed.");
   }
