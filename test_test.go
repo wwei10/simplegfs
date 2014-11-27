@@ -2,14 +2,49 @@ package simplegfs
 
 import (
   "time"
+  "fmt"
   "os"
   "bufio"
   "testing"
   "strings"
   "strconv"
+  "runtime"
 )
 
+// Print a logging message indicatin the test has started.
+//
+// param  - none
+// return - none
+func testStart() {
+  pc, _, _, ok := runtime.Caller(1)
+  if ok {
+    test := runtime.FuncForPC(pc)
+    if test != nil {
+      fmt.Println("+++++ Start\t", test.Name())
+      return
+    }
+  }
+  fmt.Println("+++++ Start\tUnknown")
+}
+
+// Print a logging message indicatin the test has finished.
+//
+// param  - none
+// return - none
+func testEnd() {
+  pc, _, _, ok := runtime.Caller(1)
+  if ok {
+    test := runtime.FuncForPC(pc)
+    if test != nil {
+      fmt.Println("----- Finish\t", test.Name())
+      return
+    }
+  }
+  fmt.Println("----- Finish\tUnknown")
+}
+
 func TestNewClientId(t *testing.T) {
+  testStart()
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
 
@@ -43,9 +78,11 @@ func TestNewClientId(t *testing.T) {
   }
   time.Sleep(HeartbeatInterval)
   ms.Kill()
+  testEnd()
 }
 
 func TestCreate(t *testing.T) {
+  testStart()
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
   c := NewClient(":4444")
@@ -57,9 +94,11 @@ func TestCreate(t *testing.T) {
   }
   time.Sleep(HeartbeatInterval)
   ms.Kill()
+  testEnd()
 }
 
 func TestReadWrite(t *testing.T) {
+  testStart()
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
 
@@ -93,4 +132,5 @@ func TestReadWrite(t *testing.T) {
   os.RemoveAll("/var/tmp/ck2")
   os.RemoveAll("/var/tmp/ck3")
 
+  testEnd()
 }
