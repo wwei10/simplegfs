@@ -63,6 +63,15 @@ type NewLeaseReply struct {
   HardLimit time.Time
 }
 
+type ExtendLeaseArgs struct {
+  ClientId uint64
+  Path string
+}
+
+type ExtendLeaseReply struct {
+  SoftLimit time.Time
+}
+
 type AddChunkArgs struct {
   Path string
   ChunkIndex uint64
