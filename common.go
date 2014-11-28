@@ -6,6 +6,8 @@ import (
   "time"
 )
 
+const FilePermRW = 0666
+const FilePermRWX = 0777
 const ChunkSize = 64 * (1 << 20)
 const HeartbeatInterval = 100 * time.Millisecond
 

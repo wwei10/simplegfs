@@ -24,10 +24,25 @@ type MasterServer struct {
 
   // Filename of a file that contains MasterServer metadata
   serverMeta string
+
   chunkservers map[string]time.Time
   file2chunkhandle map[string](map[uint64]uint64)
   chunkhandle2locations map[uint64][]string
   files map[string]*FileInfo // Stores file to information mapping
+
+  // Filename -> version number, the highest version number of all the chunks
+  // belong to that file
+  file2VersionNumber map[string]uint64
+
+  // Filename -> clientLease
+  file2ClientLease map[string]clientLease
+}
+
+// Client lease management
+type clientLease struct {
+  clientId uint64 // The client who holds the lease before softLease
+  softLimit time.Time // The lease ends at softLease, can be extended
+  hardLimit time.Time // The hard limit on how long a client can have the lease
 }
 
 // RPC call handlers declared here
@@ -180,7 +195,7 @@ func (ms *MasterServer) tick() {
 // param  - ms: pointer to a MasterServer instance
 // return - none
 func storeServerMeta(ms *MasterServer) {
-  f, er := os.OpenFile(ms.serverMeta, os.O_RDWR|os.O_CREATE, 0666)
+  f, er := os.OpenFile(ms.serverMeta, os.O_RDWR|os.O_CREATE, FilePermRW)
   if er != nil {
     // TODO Use log instead
     fmt.Println("Open/Create file ", ms.serverMeta, " failed.")
@@ -188,14 +203,38 @@ func storeServerMeta(ms *MasterServer) {
   defer f.Close()
 
   // Write out clientId
-  bytes, err := f.WriteString("clientId " +
-                              strconv.FormatUint(ms.clientId, 10) + "\n");
+  storeClientId(ms, f)
+  // Write out chunkhandle
+  storeChunkhandle(ms, f)
+}
+
+// Store MasterServer.chunkhandle on to MasterServer.serverMeta
+//
+// parram  - ms: a pointer to a MasterServer instance
+//           f: a pointer to os.File serverMeta
+// return - none
+func storeChunkhandle(ms *MasterServer, f *os.File) {
+  n, err := f.WriteString("chunkhandle " +
+                          strconv.FormatUint(ms.chunkhandle, 10) + "\n")
   if err != nil {
-    // TODO Use log instead
-    fmt.Println(er)
+    fmt.Println(err)
   } else {
-    // TODO Use log instead
-    fmt.Println("Wrote ", bytes, " bytes to serverMeta");
+    fmt.Printf("Wrote %d bytes to serverMeta\n", n)
+  }
+}
+
+// Store MasterServer.clientId on to MasterServer.serverMeta
+//
+// param  - ms: a pointer to a MasterServer instance
+//          f: a pointer to os.File serverMeta
+// return - none
+func storeClientId(ms *MasterServer, f *os.File) {
+  n, err := f.WriteString("clientId " +
+                          strconv.FormatUint(ms.clientId, 10) + "\n")
+  if err != nil {
+    fmt.Println(err)
+  } else {
+    fmt.Printf("Wrote %d bytes to serverMeta\n", n)
   }
 }
 
@@ -205,7 +244,7 @@ func storeServerMeta(ms *MasterServer) {
 // param  - ms: pointer to a MasterServer instance
 // return - none
 func loadServerMeta(ms *MasterServer) {
-  f, err := os.OpenFile(ms.serverMeta, os.O_RDONLY, 0666)
+  f, err := os.OpenFile(ms.serverMeta, os.O_RDONLY, FilePermRW)
   if err != nil {
     fmt.Println("Open file ", ms.serverMeta, " failed.");
   }
@@ -230,6 +269,12 @@ func parseServerMeta(ms *MasterServer, f *os.File) {
       ms.clientId, err = strconv.ParseUint(fields[1], 0, 64)
       if err != nil {
         log.Fatal("Failed to load clientId into ms.clientId")
+      }
+    case "chunkhandle":
+      var err error
+      ms.chunkhandle, err = strconv.ParseUint(fields[1], 0, 64)
+      if err != nil {
+        log.Fatal("Failed to load chunkhandle into ms.chunkhanle")
       }
     default:
       log.Fatal("Unknown serverMeta key.")
