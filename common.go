@@ -53,7 +53,6 @@ type FindLocationsReply struct {
   ChunkLocations []string
 }
 
-<<<<<<< HEAD
 type NewLeaseArgs struct {
   ClientId uint64
   Path string
@@ -64,7 +63,6 @@ type NewLeaseReply struct {
   HardLimit time.Time
 }
 
-=======
 type AddChunkArgs struct {
   Path string
   ChunkIndex uint64
@@ -93,7 +91,7 @@ type GetFileInfoArgs struct {
 type GetFileInfoReply struct {
   Info FileInfo
 }
->>>>>>> master
+
 // Chunkserver RPC
 type WriteArgs struct {
   ChunkHandle uint64
