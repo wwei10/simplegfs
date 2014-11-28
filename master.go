@@ -211,6 +211,40 @@ func (ms *MasterServer) NewLease(args NewLeaseArgs,
   return nil
 }
 
+// Master.ExtendLease
+//
+// Handles RPC calls from client who wishes to extent their existing lease.
+// A lease can only be extended when the requesting client is currently holding
+// the lease, and the extended lease does not exceed the hard limit on that
+// lease.
+//
+// param  - args: ExtentLeaseArgs {ClientId, Path}.
+//          reply: ExtendLeaseReply {SoftLimit}. If the client is eligible for
+//                 an extension the the SoftLimit contains the latest lease
+//                 time.
+// return - Appropriate error if any, nil otherwise.
+func (ms *MasterServer) ExtendLease(args ExtendLeaseArgs,
+                                    reply *ExtendLeaseReply) error {
+  val, ok := ms.file2ClientLease[args.Path]
+  // If no file->clientLease mapping exists, or the current lease holder is not
+  // the requesting client, report error.
+  if !ok || val.clientId != args.ClientId {
+    return errors.New("MasterServer: Cannot grant lease,"
+                      "client does not hold the lease.")
+  }
+
+  // If the hard limit on that lease has been reached, report error.
+  if val.hardLimit.After(time.Now()) {
+    return errors.New("MasterServer: Cannot grant lease,"
+                      "Hard limit has passed.")
+  }
+
+  // Client is eligible for a lease extension, update soft limit
+  ms.file2ClientLease[path].softLimit = time.Now().Add(SoftLeaseTime)
+  reply.SoftLimit = ms.file2ClientLease[path].softLimit
+  return nil
+}
+
 // Tell the server to shut itself down
 // for testing
 func (ms *MasterServer) Kill() {
