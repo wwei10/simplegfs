@@ -111,20 +111,21 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
   return nil
 }
 
-// MasterServer.LeaseNew
+// MasterServer.NewLease
 //
 // Handles RPC calls from client who requests a new lease on a file.
 // A lease can only be granted if the client is not currently holding the
 // lease, and no one else is currently holding the lease.
 // A client who is currently holding the lease should call
-// MasterServer.LeaseExtension instead.
+// MasterServer.ExtendLease instead.
 //
-// param  - args: a LeaseNewArgs which contains a clientId and a filename
-//          reply: a LeaseNewReply which contains a softLimit indicating how
-//                 long does the client has the lease
+// param  - args: a NewLeaseArgs which contains a clientId and a filename
+//          reply: a NewLeaseReply which contains a softLimit indicating how
+//                 long does the client has the lease, a hardLimit indicating
+//                 the longest possible time the client can hold the lease.
 // return - appropriate error if any, nil otherwise
-func (ms *MasterServer) LeaseNew(args LeaseNewArgs,
-                                 reply *LeaseNewReply) error {
+func (ms *MasterServer) NewLease(args NewLeaseArgs,
+                                 reply *NewLeaseReply) error {
   path := args.Path
   clientId := args.ClientId
   val, ok := ms.file2ClientLease[path]
@@ -139,7 +140,8 @@ func (ms *MasterServer) LeaseNew(args LeaseNewArgs,
     hardLimit: time.Now().Add(HardLeaseTime),
   }
   ms.file2ClientLease[path] = val
-  reply.softLimit = val.softLimit
+  reply.SoftLimit = val.softLimit
+  reply.HardLimit = val.hardLimit
   return nil
 }
 

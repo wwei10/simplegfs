@@ -8,7 +8,12 @@ import (
 type Client struct {
   masterAddr string
   clientId uint64
-  file2Lease map[string]time.Time
+  file2Lease map[string]lease
+}
+
+type lease struct {
+  softLimit time.Time
+  hardlimit time.Time
 }
 
 func NewClient(masterAddr string) *Client {

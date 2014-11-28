@@ -41,13 +41,14 @@ type FindLocationsReply struct {
   ChunkLocations []string
 }
 
-type LeaseNewArgs struct {
+type NewLeaseArgs struct {
   ClientId uint64
   Path string
 }
 
-type LeaseNewReply struct {
+type NewLeaseReply struct {
   SoftLimit time.Time
+  HardLimit time.Time
 }
 
 // Chunkserver RPC
