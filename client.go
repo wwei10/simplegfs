@@ -189,14 +189,15 @@ func (c *Client) getFileInfo(path string) (FileInfo, bool) {
 // RequestLease first checks if the client already has the lease, if so,
 // simply return to client. If the client doesn't hold the lease, it requests
 // lease from master server, update file->lease mapping.
-// This call blocks untill it gets lease from the master.
+// This function does not block, instead the caller should block untill it 
+// has the lease.
 //
 // param  - path: A pointer to the name of the file.
-// return - None.
-func (c *Client) requestLease(path *string) {
+// return - True if the client has the lease, false otherwise.
+func (c *Client) requestLease(path *string) bool{
   // Return if client already holds the lease.
   if c.checkLease(path) {
-    return
+    return true
   }
 
   // The client does not hold the lease, request it from master.
@@ -207,8 +208,9 @@ func (c *Client) requestLease(path *string) {
 
   // Block untill we get a new lease from master.
   reply := new(NewLeaseReply)
-  for ok := call(c.masterAddr, "MasterServer.NewLease", args, reply); !ok; {
-    time.Sleep(SoftLeaseTime)
+  if ok := call(c.masterAddr, "MasterServer.NewLease", args, reply); !ok {
+    // Failed to request lease.
+    return false
   }
 
   // Got the lease, now update file -> lease mapping in client.
@@ -217,7 +219,7 @@ func (c *Client) requestLease(path *string) {
     hardLimit: reply.HardLimit,
   }
   c.file2Lease[*path] = newLease
-  return
+  return true
 }
 
 // Client.checkLease
