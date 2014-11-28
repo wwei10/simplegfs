@@ -11,9 +11,9 @@ type Entry struct {
   Time time.Time // Expiration time
 }
 
-// TODO: Currently cache entry never expires
+// Returns true if cache entry expires
 func (entry *Entry) Expired() bool {
-  return false
+  return time.Now().After(entry.Time)
 }
 
 type Cache struct {
@@ -44,11 +44,12 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 func (c *Cache) Set(key string, value interface{}) {
   c.lock.Lock()
   defer c.lock.Unlock()
-  entry, ok := c.kv[key]
+  _, ok := c.kv[key]
   if ok {
     // Set new value
-    entry.Value = value
+    c.kv[key].Value = value
     // Extend expiration time
+    c.kv[key].Time = time.Now().Add(c.timeout)
   } else {
     entry := &Entry{
       Value: value,
