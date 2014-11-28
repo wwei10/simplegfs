@@ -3,7 +3,6 @@ package simplegfs
 import (
   "fmt"
   "time"
-  "fmt"
   "os"
   "bufio"
   "testing"
