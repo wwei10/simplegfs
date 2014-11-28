@@ -229,13 +229,13 @@ func (ms *MasterServer) ExtendLease(args ExtendLeaseArgs,
   // If no file->clientLease mapping exists, or the current lease holder is not
   // the requesting client, report error.
   if !ok || val.clientId != args.ClientId {
-    return errors.New("MasterServer: Cannot grant lease," +
+    return errors.New("MasterServer: Cannot grant lease, " +
                       "client does not hold the lease.")
   }
 
   // If the hard limit on that lease has been reached, report error.
   if val.hardLimit.After(time.Now()) {
-    return errors.New("MasterServer: Cannot grant lease," +
+    return errors.New("MasterServer: Cannot grant lease, " +
                       "Hard limit has passed.")
   }
 

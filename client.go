@@ -14,7 +14,7 @@ type Client struct {
 
 type lease struct {
   softLimit time.Time
-  hardlimit time.Time
+  hardLimit time.Time
 }
 
 func NewClient(masterAddr string) *Client {
@@ -181,4 +181,60 @@ func (c *Client) getFileInfo(path string) (FileInfo, bool) {
   ok := call(c.masterAddr, "MasterServer.GetFileInfo", args, reply)
   fmt.Println(path, "file information:", reply.Info)
   return reply.Info, ok
+}
+
+// Client.requestLease
+//
+// Client should call this funtion whenever it tries to modify a file.
+// RequestLease first checks if the client already has the lease, if so,
+// simply return to client. If the client doesn't hold the lease, it requests
+// lease from master server, update file->lease mapping.
+// This call blocks untill it gets lease from the master.
+//
+// param  - path: A pointer to the name of the file.
+// return - None.
+func (c *Client) requestLease(path *string) {
+  // Return if client already holds the lease.
+  if c.checkLease(path) {
+    return
+  }
+
+  // The client does not hold the lease, request it from master.
+  args := NewLeaseArgs {
+    ClientId: c.clientId,
+    Path: *path,
+  }
+
+  // Block untill we get a new lease from master.
+  reply := new(NewLeaseReply)
+  for ok := call(c.masterAddr, "MasterServer.NewLease", args, reply); !ok; {
+    time.Sleep(SoftLeaseTime)
+  }
+
+  // Got the lease, now update file -> lease mapping in client.
+  newLease := lease {
+    softLimit: reply.SoftLimit,
+    hardLimit: reply.HardLimit,
+  }
+  c.file2Lease[*path] = newLease
+  return
+}
+
+// Client.checkLease
+//
+// Called by Client.requestLease to check if the client holds a lease to a file.
+//
+// param  - path: A pointer to the name of the file.
+// return - True if client holds the lease, false otherwise.
+func (c *Client) checkLease(path *string) bool {
+  val, ok := c.file2Lease[*path]
+  // The client does not hold the lease.
+  if !ok {
+    return false
+  }
+  // The client used to hold the lease, but it has expired.
+  if val.softLimit.Before(time.Now()) {
+    return false
+  }
+  return true
 }
