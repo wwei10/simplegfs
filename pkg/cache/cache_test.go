@@ -30,7 +30,8 @@ func testGet(t *testing.T, c *Cache, key string, found bool, want string) {
 }
 
 func TestGetAndSet(t *testing.T) {
-  c := New(time.Second * 60)
+  c := New(time.Second * 60, time.Minute)
+  defer c.Stop()
   c.Set("/usr", Info{"david"})
   c.Set("/usr/bin", Info{"dawson"})
   testGet(t, c, "/usr", true, "david")
@@ -39,7 +40,8 @@ func TestGetAndSet(t *testing.T) {
 }
 
 func TestExpiration(t *testing.T) {
-  c := New(time.Second * 1)
+  c := New(time.Second * 1, time.Minute)
+  defer c.Stop()
   c.Set("/usr", Info{"david"})
   c.Set("/usr/bin", Info{"dawson"})
   testGet(t, c, "/usr", true, "david")
@@ -50,7 +52,8 @@ func TestExpiration(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-  c := New(time.Second * 60)
+  c := New(time.Second * 60, time.Minute)
+  defer c.Stop()
   c.Set("a", Info{"1"})
   c.Set("b", Info{"2"})
   testGet(t, c, "a", true, "1")
@@ -60,4 +63,19 @@ func TestDelete(t *testing.T) {
   c.Delete("b")
   c.Delete("c")
   testGet(t, c, "b", false, "")
+}
+
+func TestSweeper(t *testing.T) {
+  c := New(time.Second, time.Second * 2)
+  defer c.Stop()
+  c.Set("a", Info{"1"})
+  c.Set("b", Info{"2"})
+  c.Set("c", Info{"2"})
+  c.Set("d", Info{"2"})
+  c.Set("e", Info{"1"})
+  c.Set("f", Info{"2"})
+  time.Sleep(time.Second * 2)
+  if c.Size() != 0 {
+    t.Error("sweep() should have delete all entries")
+  }
 }
