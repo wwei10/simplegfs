@@ -58,3 +58,9 @@ func (c *Cache) Set(key string, value interface{}) {
     c.kv[key] = entry
   }
 }
+
+func (c *Cache) Delete(key string) {
+  c.lock.Lock()
+  defer c.lock.Unlock()
+  delete(c.kv, key)
+}

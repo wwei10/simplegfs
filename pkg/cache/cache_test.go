@@ -48,3 +48,16 @@ func TestExpiration(t *testing.T) {
   testGet(t, c, "/usr", false, "")
   testGet(t, c, "/usr/bin", false, "")
 }
+
+func TestDelete(t *testing.T) {
+  c := New(time.Second * 60)
+  c.Set("a", Info{"1"})
+  c.Set("b", Info{"2"})
+  testGet(t, c, "a", true, "1")
+  c.Delete("a")
+  testGet(t, c, "a", false, "")
+  testGet(t, c, "b", true, "2")
+  c.Delete("b")
+  c.Delete("c")
+  testGet(t, c, "b", false, "")
+}
