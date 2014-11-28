@@ -1,15 +1,50 @@
 package simplegfs
 
 import (
+  "fmt"
   "time"
   "os"
   "bufio"
   "testing"
   "strings"
   "strconv"
+  "runtime"
 )
 
+// Print a logging message indicatin the test has started.
+//
+// param  - none
+// return - none
+func testStart() {
+  pc, _, _, ok := runtime.Caller(1)
+  if ok {
+    test := runtime.FuncForPC(pc)
+    if test != nil {
+      fmt.Println("+++++ Start\t", test.Name())
+      return
+    }
+  }
+  fmt.Println("+++++ Start\tUnknown")
+}
+
+// Print a logging message indicatin the test has finished.
+//
+// param  - none
+// return - none
+func testEnd() {
+  pc, _, _, ok := runtime.Caller(1)
+  if ok {
+    test := runtime.FuncForPC(pc)
+    if test != nil {
+      fmt.Println("----- Finish\t", test.Name())
+      return
+    }
+  }
+  fmt.Println("----- Finish\tUnknown")
+}
+
 func TestNewClientId(t *testing.T) {
+  testStart()
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
 
@@ -43,9 +78,11 @@ func TestNewClientId(t *testing.T) {
   }
   time.Sleep(HeartbeatInterval)
   ms.Kill()
+  testEnd()
 }
 
 func TestCreate(t *testing.T) {
+  testStart()
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
   c := NewClient(":4444")
@@ -57,9 +94,11 @@ func TestCreate(t *testing.T) {
   }
   time.Sleep(HeartbeatInterval)
   ms.Kill()
+  testEnd()
 }
 
 func TestReadWrite(t *testing.T) {
+  testStart()
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
 
@@ -79,8 +118,37 @@ func TestReadWrite(t *testing.T) {
 
   time.Sleep(HeartbeatInterval)
 
-  if data, _ := c.Read("/a", 0, 31); string(data) != "hello, world. nice to meet you." {
-    t.Error("c should read 'hello, world.' actually c reads", string(data))
+  data := make([]byte, 31)
+  if n, _ := c.Read("/a", 0, data); n != 31 || string(data) != "hello, world. nice to meet you." {
+    t.Error("c actually reads", string(data))
+  }
+
+  data = make([]byte, 100)
+  if n, _ := c.Read("/a", 0, data); n != 31 || string(data[0:n]) != "hello, world. nice to meet you." {
+    t.Error("c actually reads", n, "chars:", string(data))
+  }
+
+  if c.Create("/b") != true {
+    t.Error("c should create '/b' successfully.")
+  }
+  test := "how are you. fine thank you and you? I'm fine too."
+  c.Write("/b", 15, []byte(test))
+  fmt.Println("#############", len(test))
+
+  time.Sleep(HeartbeatInterval)
+  data = make([]byte, 100)
+  if n, _ := c.Read("/b", 10, data); n != len(test) + 5 || string(data[5:5 + len(test)]) != test {
+    t.Error("c actually reads", n, "chars:", string(data))
+  }
+
+  test = "abcdefghijklmnopqrstuvwxyz"
+  c.Write("/b", 85, []byte(test))
+
+  time.Sleep(HeartbeatInterval)
+
+  data = make([]byte, 50)
+  if n, _ := c.Read("/b", 60, data); n != 50 {
+    t.Error("c actually reads", n, "chars:", data[:n])
   }
 
   time.Sleep(10 * HeartbeatInterval)
@@ -93,4 +161,5 @@ func TestReadWrite(t *testing.T) {
   os.RemoveAll("/var/tmp/ck2")
   os.RemoveAll("/var/tmp/ck3")
 
+  testEnd()
 }

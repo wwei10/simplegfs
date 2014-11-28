@@ -16,6 +16,18 @@ const ClockDrift = 5 * time.Millisecond
 const SoftLeaseTime = 1 * time.Second
 const HardLeaseTime = 30 * time.Second
 
+// Useful data structures
+type ChunkInfo struct {
+  Path string
+  ChunkHandle uint64
+  ChunkIndex uint64
+  Length int64
+}
+
+type FileInfo struct {
+  Length int64
+}
+
 // Message types
 
 // Master server RPC
@@ -41,6 +53,7 @@ type FindLocationsReply struct {
   ChunkLocations []string
 }
 
+<<<<<<< HEAD
 type NewLeaseArgs struct {
   ClientId uint64
   Path string
@@ -51,11 +64,43 @@ type NewLeaseReply struct {
   HardLimit time.Time
 }
 
+=======
+type AddChunkArgs struct {
+  Path string
+  ChunkIndex uint64
+}
+
+type AddChunkReply struct {
+  ChunkHandle uint64
+  ChunkLocations []string
+}
+
+type ReportChunkArgs struct {
+  ServerAddress string
+  ChunkHandle uint64
+  ChunkIndex uint64
+  Length int64
+  Path string
+}
+
+type ReportChunkReply struct {
+}
+
+type GetFileInfoArgs struct {
+  Path string
+}
+
+type GetFileInfoReply struct {
+  Info FileInfo
+}
+>>>>>>> master
 // Chunkserver RPC
 type WriteArgs struct {
   ChunkHandle uint64
+  ChunkIndex uint64
   Offset uint64
   Bytes []byte
+  Path string
 }
 
 type WriteReply struct {
@@ -63,11 +108,12 @@ type WriteReply struct {
 
 type ReadArgs struct {
   ChunkHandle uint64
-  Offset uint64
+  Offset int64
   Length uint64
 }
 
 type ReadReply struct {
+  Length int
   Bytes []byte
 }
 
@@ -87,4 +133,12 @@ func call(srv string, rpcname string,
 
   fmt.Println(err)
   return false
+}
+
+func min(x, y uint64) uint64 {
+  if x > y {
+    return y
+  } else {
+    return x
+  }
 }

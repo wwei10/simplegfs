@@ -2,6 +2,7 @@ package simplegfs
 
 import (
   "fmt"
+  "io"
   "time"
   "bytes"
   "encoding/gob"
@@ -11,6 +12,7 @@ import (
   "net"
   "net/rpc"
   "os"
+  "sync"
 )
 
 type ChunkServer struct {
@@ -28,6 +30,8 @@ type ChunkServer struct {
   chunkServerMeta string
 
   path string
+  chunks map[uint64]ChunkInfo // Store a mapping from handle to information.
+  mutex sync.RWMutex
 }
 
 // RPC handler declared here
@@ -37,6 +41,7 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   chunkhandle := args.ChunkHandle
   off := int64(args.Offset)
   bytes := args.Bytes
+  length := int64(len(bytes))
   filename := fmt.Sprintf("%d", chunkhandle)
   file, err := os.OpenFile(cs.path + "/" + filename, os.O_WRONLY | os.O_CREATE, 0777)
   if err != nil {
@@ -44,13 +49,31 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   }
   defer file.Close()
   file.WriteAt(bytes, off)
+  cs.mutex.Lock()
+  defer cs.mutex.Unlock()
+  _, ok := cs.chunks[chunkhandle]
+  // If we have never seen this chunk before,
+  // or chunk size has changed, we should
+  // report to Master immediately.
+  if !ok {
+    cs.chunks[chunkhandle] = ChunkInfo{
+      Path: args.Path,
+      ChunkHandle: chunkhandle,
+      ChunkIndex: args.ChunkIndex,
+    }
+  }
+  chunkInfo := cs.chunks[chunkhandle]
+  if off + length > chunkInfo.Length {
+    chunkInfo.Length = off + length
+    reportChunk(cs, chunkInfo)
+  }
   return nil
 }
 
 func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReply) error {
   fmt.Println(cs.me, "Read RPC.")
   chunkhandle := args.ChunkHandle
-  off := int64(args.Offset)
+  off := args.Offset
   length := args.Length
   bytes := make([]byte, length)
   filename := fmt.Sprintf("%d", chunkhandle)
@@ -59,11 +82,19 @@ func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReply) error {
     log.Fatal(err)
   }
   defer file.Close()
-  _, err = file.ReadAt(bytes, off)
+  n, err := file.ReadAt(bytes, off)
   if err != nil {
-    log.Fatal(err)
+    switch err {
+    case io.EOF:
+      reply.Length = n
+      reply.Bytes = bytes
+    default:
+      log.Fatal(err)
+    }
+  } else {
+    reply.Length = n
+    reply.Bytes = bytes
   }
-  reply.Bytes = bytes
   return nil
 }
 
@@ -174,6 +205,7 @@ func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
     masterAddr: masterAddr,
     chunkServerMeta: "chunkServerMeta" + me,
     path: path,
+    chunks: make(map[uint64]ChunkInfo),
   }
 
   rpcs := rpc.NewServer()
@@ -212,4 +244,18 @@ func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
   }()
 
   return cs
+}
+
+// Helper functions
+func reportChunk(cs *ChunkServer, info ChunkInfo) {
+  args := ReportChunkArgs{
+    ServerAddress: cs.me,
+    ChunkHandle: info.ChunkHandle,
+    ChunkIndex: info.ChunkIndex,
+    Length: info.Length,
+    Path: info.Path,
+  }
+  reply := new(ReportChunkReply)
+  // TODO: What if this RPC call failed?
+  go call(cs.masterAddr, "MasterServer.ReportChunk", args, reply)
 }
