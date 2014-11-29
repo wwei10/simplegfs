@@ -1,6 +1,7 @@
 package master
 
 import (
+  "fmt"
   "testing"
 )
 
@@ -40,4 +41,19 @@ func TestCreateAndMkdir(t *testing.T) {
   assertFalse(t, m.Mkdir("/a"), "Mkdir /a should return false")
   assertFalse(t, m.Create("/a/b"), "Create /a/b should return false") // /a is not a directory
   assertFalse(t, m.Create("/"), "Create / should return fasle")
+}
+
+func TestList(t *testing.T) {
+  m := NewNamespaceManager()
+  m.Mkdir("/a")
+  m.Mkdir("/b")
+  m.Mkdir("/c")
+  m.Mkdir("/a/a")
+  m.Mkdir("/a/b")
+  m.Mkdir("/a/c")
+  m.Mkdir("/a/a/b")
+  m.Mkdir("/a/a/c")
+  fmt.Println("List /a", m.List("/a"))
+  fmt.Println("List /a/a", m.List("/a/a"))
+  fmt.Println("List /", m.List("/"))
 }

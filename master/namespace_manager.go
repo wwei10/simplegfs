@@ -34,6 +34,21 @@ func (m *NamespaceManager) Mkdir(path string) bool {
   return m.add(path, true)
 }
 
+func (m *NamespaceManager) List(path string) []string {
+  m.mutex.RLock()
+  defer m.mutex.RUnlock()
+  paths := make([]string, 0)
+  if !m.exists(path, true) {
+    return paths
+  }
+  for key := range(m.paths) {
+    if getParent(key) == path {
+      paths = append(paths, key)
+    }
+  }
+  return paths
+}
+
 func (m *NamespaceManager) add(path string, isdir bool) bool {
   m.mutex.Lock()
   defer m.mutex.Unlock()
