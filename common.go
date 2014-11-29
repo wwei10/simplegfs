@@ -10,6 +10,8 @@ const FilePermRW = 0666
 const FilePermRWX = 0777
 const ChunkSize = 64 * (1 << 20)
 const HeartbeatInterval = 100 * time.Millisecond
+const CacheTimeout = time.Minute
+const CacheGCInterval = time.Minute
 
 // Useful data structures
 type ChunkInfo struct {

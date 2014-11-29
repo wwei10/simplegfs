@@ -67,12 +67,14 @@ func TestNewClientId(t *testing.T) {
   }
 
   c0 := NewClient(":4444")
+  defer c0.Stop()
   if c0.clientId != cid {
     t.Error("c0's client id should start with 0.")
   }
   time.Sleep(HeartbeatInterval)
   cid++
   c1 := NewClient(":4444")
+  defer c1.Stop()
   if c1.clientId != cid {
     t.Error("c1's client id should be 1.")
   }
@@ -86,6 +88,7 @@ func TestCreate(t *testing.T) {
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
   c := NewClient(":4444")
+  defer c.Stop()
   if c.Create("/a") == false {
     t.Error("c should create '/a' successfully.")
   }
@@ -111,6 +114,7 @@ func TestReadWrite(t *testing.T) {
   cs3 := StartChunkServer(":4444", ":7777", "/var/tmp/ck3")
 
   c := NewClient(":4444")
+  defer c.Stop()
   if c.Create("/a") != true {
     t.Error("c should create '/a' successfully.")
   }

@@ -3,16 +3,19 @@ package simplegfs
 import (
   "errors"
   "fmt"
+  "github.com/wweiw/simplegfs/pkg/cache"
 )
 
 type Client struct {
   masterAddr string
   clientId uint64
+  cache *cache.Cache
 }
 
 func NewClient(masterAddr string) *Client {
   c := &Client{
     masterAddr: masterAddr,
+    cache: cache.New(CacheTimeout, CacheGCInterval),
   }
   reply := &NewClientIdReply{}
   call(masterAddr, "MasterServer.NewClientId", struct{}{}, reply)
@@ -91,6 +94,11 @@ func (c *Client) Read(path string, offset uint64, bytes []byte) (n int, err erro
   return int(limit - offset), nil
 }
 
+// Release any resources held by client here.
+func (c *Client) Stop() {
+  c.cache.Stop()
+}
+
 func (c *Client) read(path string, chunkindex, start uint64, bytes []byte) (n int, err error) {
   // Get chunkhandle and locations
   // TODO: Cache chunk handle and location
@@ -159,12 +167,22 @@ func (c *Client) addChunk(path string, chunkIndex uint64) (AddChunkReply, bool) 
 
 // Find chunkhandle and chunk locations given filename and chunkindex
 func (c *Client) findChunkLocations(path string, chunkindex uint64) (FindLocationsReply, bool) {
+  key := fmt.Sprintf("%s,%d", path, chunkindex)
+  value, ok := c.cache.Get(key)
+  if ok {
+    reply := value.(*FindLocationsReply)
+    return *reply, ok
+  }
   args := FindLocationsArgs{
     Path: path,
     ChunkIndex: chunkindex,
   }
   reply := new(FindLocationsReply)
-  ok := call(c.masterAddr, "MasterServer.FindLocations", args, reply)
+  ok = call(c.masterAddr, "MasterServer.FindLocations", args, reply)
+  if ok {
+    // Set cache entry to the answers we get.
+    c.cache.Set(key, reply)
+  }
   return *reply, ok
 }
 
