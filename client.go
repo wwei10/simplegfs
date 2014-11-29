@@ -295,13 +295,13 @@ func (c *Client) leaseManager() {
     // Only sent RPC request to master if there is pending extension requests.
     c.leaseMutex.RLock()
     if len(c.pendingExtension) > 0 {
-    c.leaseMutex.RUnlock()
+      c.leaseMutex.RUnlock()
       args := ExtendLeaseArgs{
         ClientId: c.clientId,
         Paths: c.pendingExtension,
       }
       reply := new(ExtendLeaseReply)
-      call (c.masterAddr, "MasterServer.ExtendLease", args, reply)
+      call(c.masterAddr, "MasterServer.ExtendLease", args, reply)
 
       // Clear pending extension requests and update related lease
       c.leaseMutex.Lock()
@@ -321,6 +321,9 @@ func (c *Client) leaseManager() {
         }
       }
       c.leaseMutex.Unlock()
+    }
+    else {
+      c.leaseMutex.RUnlock()
     }
   }
 }
