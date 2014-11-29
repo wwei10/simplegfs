@@ -133,6 +133,7 @@ func (ms *MasterServer) AddChunk(args AddChunkArgs,
   chunkLocations := getRandomLocations(ms.chunkservers, 3)
   ms.chunkhandle2locations[handle] = chunkLocations
   reply.ChunkLocations = chunkLocations
+  storeServerMeta(ms)
   return nil
 }
 
