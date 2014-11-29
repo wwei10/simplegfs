@@ -28,6 +28,7 @@ type lease struct {
 func NewClient(masterAddr string) *Client {
   c := &Client{
     masterAddr: masterAddr,
+    file2Lease: make(map[string]lease),
   }
   reply := &NewClientIdReply{}
   call(masterAddr, "MasterServer.NewClientId", struct{}{}, reply)
@@ -158,6 +159,7 @@ func (c *Client) write(path string, chunkindex, start, end uint64, bytes []byte)
       Bytes: bytes,
     }
     reply := new(WriteReply)
+    c.blockOnLease(&path)
     call(cs, "ChunkServer.Write", args, reply)
   }
   return true
@@ -192,6 +194,19 @@ func (c *Client) getFileInfo(path string) (FileInfo, bool) {
   return reply.Info, ok
 }
 
+// Client.blockOnLease
+//
+// A wrapper function for Client.requestLease, automatically blocks untill
+// the caller has lease on a file.
+//
+// param  - path: A pointer to the name of the file.
+// return - None.
+func (c *Client) blockOnLease(path *string) {
+  for hasLease := c.requestLease(path); !hasLease; {
+    time.Sleep(SoftLeaseTime)
+  }
+}
+
 // Client.requestLease
 //
 // Client should call this funtion whenever it tries to modify a file.
@@ -203,12 +218,12 @@ func (c *Client) getFileInfo(path string) (FileInfo, bool) {
 //
 // param  - path: A pointer to the name of the file.
 // return - True if the client has the lease, false otherwise.
-func (c *Client) requestLease(path *string) bool{
+func (c *Client) requestLease(path *string) bool {
   // Return if client already holds the lease.
   if c.checkLease(path) {
-    // Automatically extends the lease while the clienting is still writing
+    // Automatically extends the lease while the client is still writing
     // to the file.
-    // c.extendLease(path)
+    c.extendLease(path)
     return true
   }
 
@@ -218,7 +233,7 @@ func (c *Client) requestLease(path *string) bool{
     Path: *path,
   }
 
-  // Block untill we get a new lease from master.
+  // Return false if we cannot get a new lease from master.
   reply := new(NewLeaseReply)
   if ok := call(c.masterAddr, "MasterServer.NewLease", args, reply); !ok {
     // Failed to request lease.
@@ -321,8 +336,7 @@ func (c *Client) leaseManager() {
         }
       }
       c.leaseMutex.Unlock()
-    }
-    else {
+    } else {
       c.leaseMutex.RUnlock()
     }
   }

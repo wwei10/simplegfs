@@ -227,6 +227,7 @@ func (ms *MasterServer) NewLease(args NewLeaseArgs,
 // return - nil.
 func (ms *MasterServer) ExtendLease(args ExtendLeaseArgs,
                                     reply *ExtendLeaseReply) error {
+  reply.File2SoftLimit = make(map[string]time.Time)
   for _, path := range args.Paths {
     val, ok := ms.file2ClientLease[path]
 
@@ -235,8 +236,8 @@ func (ms *MasterServer) ExtendLease(args ExtendLeaseArgs,
     // expired, or if granting extension would reseult in lease exceeding the
     // hard limit, map file to an exipired lease time.
     if !ok || val.clientId != args.ClientId ||
-       val.hardLimit.After(time.Now()) ||
-       time.Now().Add(SoftLeaseTime).After(time.Now()) {
+       val.hardLimit.Before(time.Now()) ||
+       time.Now().Add(SoftLeaseTime).After(val.hardLimit) {
       reply.File2SoftLimit[path] = time.Now()
     }
 
@@ -363,6 +364,7 @@ func StartMasterServer(me string) *MasterServer {
     file2chunkhandle: make(map[string](map[uint64]uint64)),
     chunkhandle2locations: make(map[uint64][]string),
     files: make(map[string]*FileInfo),
+    file2ClientLease: make(map[string]clientLease),
   }
 
   loadServerMeta(ms)
