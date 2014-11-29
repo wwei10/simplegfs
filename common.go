@@ -65,11 +65,11 @@ type NewLeaseReply struct {
 
 type ExtendLeaseArgs struct {
   ClientId uint64
-  Path string
+  Paths []string
 }
 
 type ExtendLeaseReply struct {
-  SoftLimit time.Time
+  File2SoftLimit map[string]time.Time
 }
 
 type AddChunkArgs struct {

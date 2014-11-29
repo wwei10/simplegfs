@@ -4,12 +4,19 @@ import (
   "errors"
   "fmt"
   "time"
+  "sync"
 )
 
 type Client struct {
   masterAddr string
   clientId uint64
   file2Lease map[string]lease
+
+  // Stores file name of the files that the client is trying to request lease
+  // extension on.
+  pendingExtension []string
+  // Lock for concurrent access in pendingExtension
+  extensionMutex sync.RWMutex
 }
 
 type lease struct {
@@ -189,7 +196,7 @@ func (c *Client) getFileInfo(path string) (FileInfo, bool) {
 // RequestLease first checks if the client already has the lease, if so,
 // simply return to client. If the client doesn't hold the lease, it requests
 // lease from master server, update file->lease mapping.
-// This function does not block, instead the caller should block untill it 
+// This function does not block, instead the caller should block untill it
 // has the lease.
 //
 // param  - path: A pointer to the name of the file.
@@ -197,6 +204,9 @@ func (c *Client) getFileInfo(path string) (FileInfo, bool) {
 func (c *Client) requestLease(path *string) bool{
   // Return if client already holds the lease.
   if c.checkLease(path) {
+    // Automatically extends the lease while the clienting is still writing
+    // to the file.
+    // c.extendLease(path)
     return true
   }
 
@@ -239,4 +249,26 @@ func (c *Client) checkLease(path *string) bool {
     return false
   }
   return true
+}
+
+// Client.extendLease
+//
+// Called by Client.requestLease when the client already has a lease.
+// This function adds the requested file into Client.pendingExtension, the
+// extension requests will be batched and later be sent by client's regular
+// lease extension RPCs.
+//
+// param  - path: A pointer to the name of the file.
+// return - None.
+func (c *Client) extendLease(path *string) {
+  c.extensionMutex.Lock()
+  defer c.extensionMutex.Unlock()
+  // If a pending extension request already exists then we don't need to add
+  // more.
+  for _, val := range c.pendingExtension {
+    if val == *path {
+      return
+    }
+  }
+  c.pendingExtension = append(c.pendingExtension, *path)
 }

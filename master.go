@@ -185,7 +185,7 @@ func (ms *MasterServer) GetFileInfo(args GetFileInfoArgs,
 // A client who is currently holding the lease should call
 // MasterServer.ExtendLease instead.
 //
-// param  - args: a NewLeaseArgs which contains a clientId and a filename
+// param  - args: a NewLeaseArgs which contains a clientId and a filename.
 //          reply: a NewLeaseReply which contains a softLimit indicating how
 //                 long does the client has the lease, a hardLimit indicating
 //                 the longest possible time the client can hold the lease.
@@ -218,31 +218,30 @@ func (ms *MasterServer) NewLease(args NewLeaseArgs,
 // the lease, and the extended lease does not exceed the hard limit on that
 // lease.
 //
-// param  - args: ExtentLeaseArgs {ClientId, Path}.
-//          reply: ExtendLeaseReply {SoftLimit}. If the client is eligible for
-//                 an extension the the SoftLimit contains the latest lease
-//                 time.
-// return - Appropriate error if any, nil otherwise.
+// param  - args: ExtentLeaseArgs {ClientId, Paths}. Paths is an array of
+//                filenames the client is requesting extensions on.
+//          reply: ExtendLeaseReply {File2SoftLimit}. If the client is eligible
+//                 for an extension on a file, then there will be a mapping
+//                 from that file to a SoftLimit time, otherwise it will be
+//                 mapped to an expired lease time.
+// return - nil.
 func (ms *MasterServer) ExtendLease(args ExtendLeaseArgs,
                                     reply *ExtendLeaseReply) error {
-  val, ok := ms.file2ClientLease[args.Path]
-  // If no file->clientLease mapping exists, or the current lease holder is not
-  // the requesting client, report error.
-  if !ok || val.clientId != args.ClientId {
-    return errors.New("MasterServer: Cannot grant lease, " +
-                      "client does not hold the lease.")
-  }
+  for _, path := range args.Paths {
+    val, ok := ms.file2ClientLease[path]
 
-  // If the hard limit on that lease has been reached, report error.
-  if val.hardLimit.After(time.Now()) {
-    return errors.New("MasterServer: Cannot grant lease, " +
-                      "Hard limit has passed.")
-  }
+    // If no file->clientLease mapping exists, or the current lease holder is
+    // not the requesting client, or the hard limit on the client lease has
+    // expired, map file to an exipired lease time.
+    if !ok || val.clientId != args.ClientId || val.hardLimit.After(time.Now()) {
+      reply.File2SoftLimit[path] = time.Now()
+    }
 
-  // Client is eligible for a lease extension, update soft limit
-  val.softLimit = time.Now().Add(SoftLeaseTime)
-  reply.SoftLimit = val.softLimit
-  ms.file2ClientLease[args.Path] = val
+    // Client is eligible for a lease extension, update soft limit
+    val.softLimit = time.Now().Add(SoftLeaseTime)
+    ms.file2ClientLease[path] = val
+    reply.File2SoftLimit[path] = val.softLimit
+  }
   return nil
 }
 
