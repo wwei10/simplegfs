@@ -27,31 +27,30 @@ func NewNamespaceManager() *NamespaceManager {
 }
 
 func (m *NamespaceManager) Create(path string) bool {
+  m.mutex.Lock()
+  defer m.mutex.Unlock()
   return m.add(path, false)
 }
 
 func (m *NamespaceManager) Mkdir(path string) bool {
+  m.mutex.Lock()
+  defer m.mutex.Unlock()
   return m.add(path, true)
 }
 
 func (m *NamespaceManager) List(path string) []string {
   m.mutex.RLock()
   defer m.mutex.RUnlock()
-  paths := make([]string, 0)
-  if !m.exists(path, true) {
-    return paths
-  }
-  for key := range(m.paths) {
-    if getParent(key) == path {
-      paths = append(paths, key)
-    }
-  }
-  return paths
+  return m.list(path)
+}
+
+func (m *NamespaceManager) Delete(path string) bool {
+  m.mutex.Lock()
+  defer m.mutex.Unlock()
+  return m.remove(path)
 }
 
 func (m *NamespaceManager) add(path string, isdir bool) bool {
-  m.mutex.Lock()
-  defer m.mutex.Unlock()
   parent := getParent(path)
   // Returns false if its parent doesn't exist or itself exists
   if !m.exists(parent, true) || m.exists(path, true) || m.exists(path, false) {
@@ -62,6 +61,33 @@ func (m *NamespaceManager) add(path string, isdir bool) bool {
     length: 0,
   }
   return true
+}
+
+func (m *NamespaceManager) remove(path string) bool {
+  // Returns false if path doesn't exist in the namespace
+  if !m.exists(path, true) && !m.exists(path, false) {
+    return false
+  }
+  // Return false if it has children
+  if len(m.list(path)) > 0 {
+    return false
+  }
+  // Remove path from metadata
+  delete(m.paths, path)
+  return true
+}
+
+func (m *NamespaceManager) list(path string) []string {
+  paths := make([]string, 0)
+  if !m.exists(path, true) {
+    return paths
+  }
+  for key := range(m.paths) {
+    if key != "/" && getParent(key) == path {
+      paths = append(paths, key)
+    }
+  }
+  return paths
 }
 
 // Returns true if path exists in the namespace.

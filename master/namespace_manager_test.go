@@ -57,3 +57,22 @@ func TestList(t *testing.T) {
   fmt.Println("List /a/a", m.List("/a/a"))
   fmt.Println("List /", m.List("/"))
 }
+
+func TestDelete(t *testing.T) {
+  m := NewNamespaceManager()
+  m.Mkdir("/a")
+  m.Mkdir("/a/b")
+  m.Mkdir("/a/c")
+  assertFalse(t, m.Delete("/a"), "Delete /a should return false")
+  assertTrue(t, m.Delete("/a/b"), "Delete /a/b should return true")
+  assertTrue(t, m.Delete("/a/c"), "Delete /a/c should return true")
+  assertTrue(t, m.Delete("/a"), "Delete /a should return true")
+  m.Mkdir("/a")
+  m.Mkdir("/b")
+  m.Mkdir("/b/c")
+  m.Mkdir("/b/c/d")
+  assertFalse(t, m.Delete("/b/c"), "Delete /b/c should return false")
+  assertTrue(t, m.Delete("/b/c/d"), "Delete /b/c/d should return true")
+  assertTrue(t, m.Delete("/b/c"), "Delete /b/c should return true")
+  assertTrue(t, m.Delete("/b"), "Delete /b should return true")
+}
