@@ -37,6 +37,13 @@ func (c *Client) Mkdir(path string) bool {
   return *reply
 }
 
+// List dir
+func (c *Client) List(path string) []string {
+  reply := new(ListReply)
+  call(c.masterAddr, "MasterServer.List", path, reply)
+  return reply.Paths
+}
+
 // Write file at a specific offset
 func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
   // TODO: Split one write into multiple RPC

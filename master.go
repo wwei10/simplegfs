@@ -88,6 +88,7 @@ func (ms *MasterServer) Create(args string,
   return nil
 }
 
+// Client calls Mkdir to make a new directory.
 func (ms *MasterServer) Mkdir(args string,
                               reply *bool) error {
   ok := ms.namespaceManager.Mkdir(args)
@@ -97,6 +98,13 @@ func (ms *MasterServer) Mkdir(args string,
     return nil
   }
   *reply = true
+  return nil
+}
+
+func (ms *MasterServer) List(args string,
+                              reply *ListReply) error {
+  paths := ms.namespaceManager.List(args)
+  reply.Paths = paths
   return nil
 }
 
