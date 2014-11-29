@@ -244,6 +244,7 @@ func (ms *MasterServer) ExtendLease(args ExtendLeaseArgs,
     // Client is eligible for a lease extension, update soft limit
     val.softLimit = time.Now().Add(SoftLeaseTime)
     ms.file2ClientLease[path] = val
+    fmt.Printf("%#v\n", reply.File2SoftLimit)
     reply.File2SoftLimit[path] = val.softLimit
   }
   return nil
