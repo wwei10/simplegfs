@@ -15,6 +15,7 @@ const HeartbeatInterval = 100 * time.Millisecond
 const ClockDrift = 5 * time.Millisecond
 const SoftLeaseTime = 1 * time.Second
 const HardLeaseTime = 30 * time.Second
+const ExtensionRequestInterval = 500 * time.Millisecond
 
 // Useful data structures
 type ChunkInfo struct {

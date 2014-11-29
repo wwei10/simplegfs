@@ -232,8 +232,11 @@ func (ms *MasterServer) ExtendLease(args ExtendLeaseArgs,
 
     // If no file->clientLease mapping exists, or the current lease holder is
     // not the requesting client, or the hard limit on the client lease has
-    // expired, map file to an exipired lease time.
-    if !ok || val.clientId != args.ClientId || val.hardLimit.After(time.Now()) {
+    // expired, or if granting extension would reseult in lease exceeding the
+    // hard limit, map file to an exipired lease time.
+    if !ok || val.clientId != args.ClientId ||
+       val.hardLimit.After(time.Now()) ||
+       time.Now().Add(SoftLeaseTime).After(time.Now()) {
       reply.File2SoftLimit[path] = time.Now()
     }
 

@@ -5,6 +5,7 @@ import (
   "fmt"
   "time"
   "sync"
+  "log"
 )
 
 type Client struct {
@@ -15,8 +16,8 @@ type Client struct {
   // Stores file name of the files that the client is trying to request lease
   // extension on.
   pendingExtension []string
-  // Lock for concurrent access in pendingExtension
-  extensionMutex sync.RWMutex
+  // Lease lock for pendingextension and file2Lease
+  leaseMutex sync.RWMutex
 }
 
 type lease struct {
@@ -31,6 +32,7 @@ func NewClient(masterAddr string) *Client {
   reply := &NewClientIdReply{}
   call(masterAddr, "MasterServer.NewClientId", struct{}{}, reply)
   c.clientId = reply.ClientId
+  go c.leaseManager()
   return c
 }
 
@@ -228,6 +230,8 @@ func (c *Client) requestLease(path *string) bool{
     softLimit: reply.SoftLimit,
     hardLimit: reply.HardLimit,
   }
+  c.leaseMutex.Lock()
+  defer c.leaseMutex.Unlock()
   c.file2Lease[*path] = newLease
   return true
 }
@@ -239,6 +243,8 @@ func (c *Client) requestLease(path *string) bool{
 // param  - path: A pointer to the name of the file.
 // return - True if client holds the lease, false otherwise.
 func (c *Client) checkLease(path *string) bool {
+  c.leaseMutex.RLock()
+  defer c.leaseMutex.RUnlock()
   val, ok := c.file2Lease[*path]
   // The client does not hold the lease.
   if !ok {
@@ -261,8 +267,8 @@ func (c *Client) checkLease(path *string) bool {
 // param  - path: A pointer to the name of the file.
 // return - None.
 func (c *Client) extendLease(path *string) {
-  c.extensionMutex.Lock()
-  defer c.extensionMutex.Unlock()
+  c.leaseMutex.Lock()
+  defer c.leaseMutex.Unlock()
   // If a pending extension request already exists then we don't need to add
   // more.
   for _, val := range c.pendingExtension {
@@ -271,4 +277,50 @@ func (c *Client) extendLease(path *string) {
     }
   }
   c.pendingExtension = append(c.pendingExtension, *path)
+}
+
+// Client.leaseManager
+//
+// A lease management thread that sends out lease extension requests every
+// ExtensionRequestInterval to master server if there is any pending extension
+// requests.
+//
+// param  - None.
+// return - None.
+func (c *Client) leaseManager() {
+  for {
+    fmt.Println("Client lease manager reporting for duty!")
+    time.Sleep(ExtensionRequestInterval)
+
+    // Only sent RPC request to master if there is pending extension requests.
+    c.leaseMutex.RLock()
+    if len(c.pendingExtension) > 0 {
+    c.leaseMutex.RUnlock()
+      args := ExtendLeaseArgs{
+        ClientId: c.clientId,
+        Paths: c.pendingExtension,
+      }
+      reply := new(ExtendLeaseReply)
+      call (c.masterAddr, "MasterServer.ExtendLease", args, reply)
+
+      // Clear pending extension requests and update related lease
+      c.leaseMutex.Lock()
+      c.pendingExtension = nil
+      for path, softLimit := range reply.File2SoftLimit {
+        // Update lease only if extension requests were granted by master.
+        if softLimit.After(time.Now()) {
+          lease, ok := c.file2Lease[path]
+          if !ok {
+            // No mapping exist means the client has never had a lease on this
+            // file, therefore there is no way we could be requesting an
+            // extension on that file. Something went seriously wrong.
+            log.Fatal("Lease extension granted on files without lease.")
+          }
+          lease.softLimit = softLimit
+          c.file2Lease[path] = lease
+        }
+      }
+      c.leaseMutex.Unlock()
+    }
+  }
 }
