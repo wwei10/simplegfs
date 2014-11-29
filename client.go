@@ -315,9 +315,6 @@ func (c *Client) leaseManager() {
         ClientId: c.clientId,
         Paths: c.pendingExtension,
       }
-      // reply := &ExtendLeaseReply{
-      //   File2SoftLimit: make(map[string]time.Time),
-      // }
       reply := new(ExtendLeaseReply)
       call(c.masterAddr, "MasterServer.ExtendLease", args, reply)
 
