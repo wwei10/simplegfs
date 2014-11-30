@@ -202,8 +202,10 @@ func (c *Client) getFileInfo(path string) (FileInfo, bool) {
 // param  - path: A pointer to the name of the file.
 // return - None.
 func (c *Client) blockOnLease(path *string) {
-  for hasLease := c.requestLease(path); !hasLease; {
+  hasLease := c.requestLease(path)
+  for !hasLease {
     time.Sleep(SoftLeaseTime)
+    hasLease = c.requestLease(path)
   }
 }
 
@@ -304,7 +306,7 @@ func (c *Client) extendLease(path *string) {
 // return - None.
 func (c *Client) leaseManager() {
   for {
-    fmt.Println("Client lease manager reporting for duty!")
+    fmt.Println(c.clientId, ": Client lease manager reporting for duty!")
     time.Sleep(ExtensionRequestInterval)
 
     // Only sent RPC request to master if there is pending extension requests.
