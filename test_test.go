@@ -2,6 +2,7 @@ package simplegfs
 
 import (
   "fmt"
+  "github.com/wweiw/simplegfs/pkg/testutil"
   "time"
   "os"
   "bufio"
@@ -86,16 +87,12 @@ func TestNewClientId(t *testing.T) {
 
   c0 := NewClient(":4444")
   defer c0.Stop()
-  if c0.clientId != cid {
-    t.Error("c0's client id should start with 0.")
-  }
+  testutil.AssertEquals(t, c0.clientId, cid)
   time.Sleep(HeartbeatInterval)
   cid++
   c1 := NewClient(":4444")
   defer c1.Stop()
-  if c1.clientId != cid {
-    t.Error("c1's client id should be 1.")
-  }
+  testutil.AssertEquals(t, c1.clientId, cid)
   time.Sleep(HeartbeatInterval)
   ms.Kill()
   testEnd()
@@ -107,25 +104,25 @@ func TestNamespaceManagement(t *testing.T) {
   time.Sleep(HeartbeatInterval)
   c := NewClient(":4444")
   defer c.Stop()
-  assertTrue(t, c.Create("/a"), "create /a returns true.")
-  assertFalse(t, c.Create("/a"), "create /a returns false.")
-  assertFalse(t, c.Mkdir("/var/tmp"), "mkdir /var/tmp returns false.")
-  assertTrue(t, c.Mkdir("/var"), "mkdir /var returns true.")
-  assertTrue(t, c.Mkdir("/var/tmp"), "mkdir /var/tmp returns true.")
-  assertTrue(t, c.Create("/var/tmp/a"), "create /var/tmp/a returns true.")
-  assertTrue(t, c.Create("/var/tmp/b"), "create /var/tmp/b returns true.")
-  assertTrue(t, c.Create("/var/tmp/c"), "create /var/tmp/c returns true.")
-  assertTrue(t, c.Create("/var/tmp/d"), "create /var/tmp/d returns true.")
+  testutil.AssertTrue(t, c.Create("/a"), "create /a returns true.")
+  testutil.AssertFalse(t, c.Create("/a"), "create /a returns false.")
+  testutil.AssertFalse(t, c.Mkdir("/var/tmp"), "mkdir /var/tmp returns false.")
+  testutil.AssertTrue(t, c.Mkdir("/var"), "mkdir /var returns true.")
+  testutil.AssertTrue(t, c.Mkdir("/var/tmp"), "mkdir /var/tmp returns true.")
+  testutil.AssertTrue(t, c.Create("/var/tmp/a"), "create /var/tmp/a returns true.")
+  testutil.AssertTrue(t, c.Create("/var/tmp/b"), "create /var/tmp/b returns true.")
+  testutil.AssertTrue(t, c.Create("/var/tmp/c"), "create /var/tmp/c returns true.")
+  testutil.AssertTrue(t, c.Create("/var/tmp/d"), "create /var/tmp/d returns true.")
   fmt.Println(c.List("/var/tmp"))
-  assertFalse(t, c.Delete("/var"), "delete /var returns false.")
-  assertFalse(t, c.Delete("/var/tmp"), "delete /var/tmp returns false.")
-  assertTrue(t, c.Delete("/var/tmp/a"), "delete /var/tmp/a returns true.")
-  assertTrue(t, c.Delete("/var/tmp/b"), "delete /var/tmp/b returns true.")
-  assertTrue(t, c.Delete("/var/tmp/c"), "delete /var/tmp/c returns true.")
-  assertTrue(t, c.Delete("/var/tmp/d"), "delete /var/tmp/d returns true.")
+  testutil.AssertFalse(t, c.Delete("/var"), "delete /var returns false.")
+  testutil.AssertFalse(t, c.Delete("/var/tmp"), "delete /var/tmp returns false.")
+  testutil.AssertTrue(t, c.Delete("/var/tmp/a"), "delete /var/tmp/a returns true.")
+  testutil.AssertTrue(t, c.Delete("/var/tmp/b"), "delete /var/tmp/b returns true.")
+  testutil.AssertTrue(t, c.Delete("/var/tmp/c"), "delete /var/tmp/c returns true.")
+  testutil.AssertTrue(t, c.Delete("/var/tmp/d"), "delete /var/tmp/d returns true.")
   fmt.Println(c.List("/var/tmp"))
-  assertTrue(t, c.Delete("/var/tmp"), "delete /var/tmp returns true.")
-  assertTrue(t, c.Delete("/var"), "delete /var returns true.")
+  testutil.AssertTrue(t, c.Delete("/var/tmp"), "delete /var/tmp returns true.")
+  testutil.AssertTrue(t, c.Delete("/var"), "delete /var returns true.")
   time.Sleep(HeartbeatInterval)
   ms.Kill()
   testEnd()

@@ -11,11 +11,11 @@ func TestAssertEquals(t *testing.T) {
 }
 
 func TestAssertTrue(t *testing.T) {
-  AssertTrue(t, 1 == 1)
-  AssertTrue(t, "abc" == "abc")
+  AssertTrue(t, 1 == 1, "1 == 1")
+  AssertTrue(t, "abc" == "abc", "'abc' == 'abc'")
 }
 
 func TestAssertFalse(t *testing.T) {
-  AssertFalse(t, 1 != 1)
-  AssertFalse(t, "abc" != "abc")
+  AssertFalse(t, 1 != 1, "1 != 1")
+  AssertFalse(t, "abc" != "abc", "'abc' != 'abc'")
 }

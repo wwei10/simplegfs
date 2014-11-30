@@ -28,7 +28,7 @@ func getInfo() string {
 
 // Throws an error if the type of got and the type of want mismatch
 // or their values don't match.
-// Note: Supported types - int, string, bool
+// Note: Supported types - int, uint64, string, bool
 func AssertEquals(t *testing.T, got, want interface{}) {
   context := getInfo()
   gotType := reflect.TypeOf(got)
@@ -40,6 +40,11 @@ func AssertEquals(t *testing.T, got, want interface{}) {
   case int:
     if got.(int) != want.(int) {
       msg := fmt.Sprintf("got: '%d', want: '%d'", got.(int), want.(int))
+      t.Errorf("%s: %s", inRed(context), inRed(msg))
+    }
+  case uint64:
+    if got.(uint64) != want.(uint64) {
+      msg := fmt.Sprintf("got: '%d', want: '%d'", got.(uint64), want.(uint64))
       t.Errorf("%s: %s", inRed(context), inRed(msg))
     }
   case string:
@@ -58,18 +63,18 @@ func AssertEquals(t *testing.T, got, want interface{}) {
 }
 
 // Throws an error if got is not true
-func AssertTrue(t *testing.T, got bool) {
+func AssertTrue(t *testing.T, got bool, msg string) {
   context := getInfo()
   if !got {
-    t.Errorf("%s: %s", inRed(context), inRed("the condition should be false"))
+    t.Errorf("%s: %s", inRed(context), inRed(msg))
   }
 }
 
 // Throws an error if got is true
-func AssertFalse(t *testing.T, got bool) {
+func AssertFalse(t *testing.T, got bool, msg string) {
   context := getInfo()
   if got {
-    t.Errorf("%s: %s", inRed(context), inRed("the condition should be true"))
+    t.Errorf("%s: %s", inRed(context), inRed(msg))
   }
 }
 
