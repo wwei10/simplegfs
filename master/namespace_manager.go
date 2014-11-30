@@ -50,10 +50,11 @@ func (m *NamespaceManager) Delete(path string) bool {
   return m.remove(path)
 }
 
+// Precondition: m.mutex.Lock() is called.
 func (m *NamespaceManager) add(path string, isdir bool) bool {
   parent := getParent(path)
-  // Returns false if its parent doesn't exist or itself exists
-  if !m.exists(parent, true) || m.exists(path, true) || m.exists(path, false) {
+  // Returns false if its parent directory doesn't exist or itself exists
+  if !m.exists(parent) || !m.isDir(parent) || m.exists(path) {
     return false
   }
   m.paths[path] = &Info{
@@ -63,9 +64,10 @@ func (m *NamespaceManager) add(path string, isdir bool) bool {
   return true
 }
 
+// Precondition: m.mutex.Lock() is called.
 func (m *NamespaceManager) remove(path string) bool {
   // Returns false if path doesn't exist in the namespace
-  if !m.exists(path, true) && !m.exists(path, false) {
+  if !m.exists(path) {
     return false
   }
   // Return false if it has children
@@ -77,9 +79,12 @@ func (m *NamespaceManager) remove(path string) bool {
   return true
 }
 
+// Precondition: m.mutex.RLock() is called.
 func (m *NamespaceManager) list(path string) []string {
   paths := make([]string, 0)
-  if !m.exists(path, true) {
+  // If path doesn't exist or it is not a directory,
+  // return empty []string.
+  if !m.exists(path) || !m.isDir(path) {
     return paths
   }
   for key := range(m.paths) {
@@ -90,16 +95,24 @@ func (m *NamespaceManager) list(path string) []string {
   return paths
 }
 
+// Precondition: m.mutex.RLock() is called.
 // Returns true if path exists in the namespace.
-func (m *NamespaceManager) exists(path string, isdir bool) bool {
+func (m *NamespaceManager) exists(path string) bool {
+  _, ok := m.paths[path]
+  if !ok {
+    return false
+  }
+  return true
+}
+
+// Precondition: m.mutex.RLock() is called.
+// Returns true if path exists and it is a directory.
+func (m *NamespaceManager) isDir(path string) bool {
   info, ok := m.paths[path]
   if !ok {
     return false
   }
-  if info.isdir != isdir {
-    return false
-  }
-  return true
+  return info.isdir
 }
 
 // Returns parent path.
