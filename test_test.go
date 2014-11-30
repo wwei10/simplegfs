@@ -43,6 +43,20 @@ func testEnd() {
   fmt.Println("----- Finish\tUnknown")
 }
 
+// Returns error and prints error message if got is not true.
+func assertTrue(t *testing.T, got bool, msg string) {
+  if !got {
+    t.Error(msg)
+  }
+}
+
+// Returns error and prints error message if got is not false.
+func assertFalse(t *testing.T, got bool, msg string) {
+  if got {
+    t.Error(msg)
+  }
+}
+
 func TestNewClientId(t *testing.T) {
   testStart()
   ms := StartMasterServer(":4444")
@@ -83,18 +97,31 @@ func TestNewClientId(t *testing.T) {
   testEnd()
 }
 
-func TestCreate(t *testing.T) {
+func TestNamespaceManagement(t *testing.T) {
   testStart()
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
   c := NewClient(":4444")
   defer c.Stop()
-  if c.Create("/a") == false {
-    t.Error("c should create '/a' successfully.")
-  }
-  if c.Create("/a") == true {
-    t.Error("c should not be able to create '/a' again.")
-  }
+  assertTrue(t, c.Create("/a"), "create /a returns true.")
+  assertFalse(t, c.Create("/a"), "create /a returns false.")
+  assertFalse(t, c.Mkdir("/var/tmp"), "mkdir /var/tmp returns false.")
+  assertTrue(t, c.Mkdir("/var"), "mkdir /var returns true.")
+  assertTrue(t, c.Mkdir("/var/tmp"), "mkdir /var/tmp returns true.")
+  assertTrue(t, c.Create("/var/tmp/a"), "create /var/tmp/a returns true.")
+  assertTrue(t, c.Create("/var/tmp/b"), "create /var/tmp/b returns true.")
+  assertTrue(t, c.Create("/var/tmp/c"), "create /var/tmp/c returns true.")
+  assertTrue(t, c.Create("/var/tmp/d"), "create /var/tmp/d returns true.")
+  fmt.Println(c.List("/var/tmp"))
+  assertFalse(t, c.Delete("/var"), "delete /var returns false.")
+  assertFalse(t, c.Delete("/var/tmp"), "delete /var/tmp returns false.")
+  assertTrue(t, c.Delete("/var/tmp/a"), "delete /var/tmp/a returns true.")
+  assertTrue(t, c.Delete("/var/tmp/b"), "delete /var/tmp/b returns true.")
+  assertTrue(t, c.Delete("/var/tmp/c"), "delete /var/tmp/c returns true.")
+  assertTrue(t, c.Delete("/var/tmp/d"), "delete /var/tmp/d returns true.")
+  fmt.Println(c.List("/var/tmp"))
+  assertTrue(t, c.Delete("/var/tmp"), "delete /var/tmp returns true.")
+  assertTrue(t, c.Delete("/var"), "delete /var returns true.")
   time.Sleep(HeartbeatInterval)
   ms.Kill()
   testEnd()

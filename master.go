@@ -1,17 +1,18 @@
 package simplegfs
 
 import (
+  "bufio" // For reading lines from a file
   "errors"
   "fmt"
+  "github.com/wweiw/simplegfs/master"
   "log"
   "net"
   "net/rpc"
-  "sync"
-  "time"
   "os" // For os file operations
   "strconv" // For string conversion to/from basic data types
-  "bufio" // For reading lines from a file
   "strings" // For parsing serverMeta
+  "sync"
+  "time"
 )
 
 type MasterServer struct {
@@ -36,6 +37,9 @@ type MasterServer struct {
 
   // Filename -> clientLease
   file2ClientLease map[string]clientLease
+
+  // Namespace manager
+  namespaceManager *master.NamespaceManager
 }
 
 // Client lease management
@@ -72,17 +76,48 @@ func (ms *MasterServer) NewClientId(args *struct{},
 func (ms *MasterServer) Create(args string,
                                reply *bool) error {
   // TODO: error handling
-  ms.mutex.Lock()
-  defer ms.mutex.Unlock()
-  _, ok := ms.file2chunkhandle[args]
-  if ok {
-    fmt.Println("Existing file.")
+  ok := ms.namespaceManager.Create(args)
+  if !ok {
+    fmt.Println("Create file failed.")
     *reply = false
     return nil
   }
   ms.file2chunkhandle[args] = make(map[uint64]uint64)
   ms.files[args] = &FileInfo{}
   *reply = true
+  return nil
+}
+
+// Client calls Mkdir to make a new directory.
+func (ms *MasterServer) Mkdir(args string,
+                              reply *bool) error {
+  ok := ms.namespaceManager.Mkdir(args)
+  if !ok {
+    fmt.Println("Mkdir failed.")
+    *reply = false
+    return nil
+  }
+  *reply = true
+  return nil
+}
+
+// List all files or directories under a specific directory.
+// Returns empty []string when the argument is not a directory
+// or it contains no files and directories.
+func (ms *MasterServer) List(args string,
+                             reply *ListReply) error {
+  paths := ms.namespaceManager.List(args)
+  reply.Paths = paths
+  return nil
+}
+
+// Delete a file or directory.
+// This operation will succeeds only if it is a valid path and
+// it contains no children.
+func (ms *MasterServer) Delete(args string,
+                               reply *bool) error {
+  ok := ms.namespaceManager.Delete(args)
+  *reply = ok
   return nil
 }
 
@@ -293,6 +328,7 @@ func StartMasterServer(me string) *MasterServer {
     file2chunkhandle: make(map[string](map[uint64]uint64)),
     chunkhandle2locations: make(map[uint64][]string),
     files: make(map[string]*FileInfo),
+    namespaceManager: master.NewNamespaceManager(),
   }
 
   loadServerMeta(ms)

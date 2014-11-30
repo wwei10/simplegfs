@@ -33,6 +33,27 @@ func (c *Client) Create(path string) bool {
   return *reply
 }
 
+// Mkdir
+func (c *Client) Mkdir(path string) bool {
+  reply := new(bool)
+  call(c.masterAddr, "MasterServer.Mkdir", path, reply)
+  return *reply
+}
+
+// List dir
+func (c *Client) List(path string) []string {
+  reply := new(ListReply)
+  call(c.masterAddr, "MasterServer.List", path, reply)
+  return reply.Paths
+}
+
+// Delete a directory or a file
+func (c *Client) Delete(path string) bool {
+  reply := new(bool)
+  call(c.masterAddr, "MasterServer.Delete", path, reply)
+  return *reply
+}
+
 // Write file at a specific offset
 func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
   // TODO: Split one write into multiple RPC

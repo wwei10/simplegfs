@@ -75,6 +75,10 @@ type GetFileInfoArgs struct {
   Path string
 }
 
+type ListReply struct {
+  Paths []string
+}
+
 type GetFileInfoReply struct {
   Info FileInfo
 }
