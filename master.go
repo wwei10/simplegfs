@@ -44,8 +44,8 @@ type MasterServer struct {
 
 // Client lease management
 type clientLease struct {
-  clientId uint64 // The client who holds the lease before softLease
-  softLimit time.Time // The lease ends at softLease, can be extended
+  clientId uint64 // The client who holds the lease before softLimit expires
+  softLimit time.Time // The lease ends at softLimit, can be extended
   hardLimit time.Time // The hard limit on how long a client can have the lease
 }
 
@@ -124,7 +124,7 @@ func (ms *MasterServer) Delete(args string,
 // Client calls FindLoations to get chunk locations
 // given file name and chunk index.
 func (ms *MasterServer) FindLocations(args FindLocationsArgs,
-                                     reply *FindLocationsReply) error {
+                                      reply *FindLocationsReply) error {
   ms.mutex.Lock()
   defer ms.mutex.Unlock()
   fmt.Println("Find Locations RPC")
@@ -210,6 +210,83 @@ func (ms *MasterServer) GetFileInfo(args GetFileInfoArgs,
     return errors.New("file not found.")
   }
   reply.Info = *info
+  return nil
+}
+
+// MasterServer.NewLease
+//
+// Handles RPC calls from client who requests a new lease on a file.
+// A lease can only be granted if the client is not currently holding the
+// lease, and no one else is currently holding the lease.
+// A client who is currently holding the lease should call
+// MasterServer.ExtendLease instead.
+//
+// param  - args: a NewLeaseArgs which contains a clientId and a filename.
+//          reply: a NewLeaseReply which contains a softLimit indicating how
+//                 long does the client has the lease, a hardLimit indicating
+//                 the longest possible time the client can hold the lease.
+// return - appropriate error if any, nil otherwise
+func (ms *MasterServer) NewLease(args NewLeaseArgs,
+                                 reply *NewLeaseReply) error {
+  path := args.Path
+  clientId := args.ClientId
+  val, ok := ms.file2ClientLease[path]
+  // Check to see if anyone(including the requesting client) is currently
+  // holding a lease to the requested file.
+  if ok && time.Now().Before(val.softLimit) {
+    return errors.New("Cannot grant lease to client " +
+                      strconv.FormatUint(clientId, 10) +
+                      ". Lease held by client " +
+                      strconv.FormatUint(val.clientId, 10) + ".")
+  }
+  val = clientLease{
+    clientId: clientId,
+    softLimit: time.Now().Add(SoftLeaseTime),
+    hardLimit: time.Now().Add(HardLeaseTime),
+  }
+  ms.file2ClientLease[path] = val
+  reply.SoftLimit = val.softLimit
+  reply.HardLimit = val.hardLimit
+  fmt.Println("New lease granted to client", clientId, "for file", path,
+              "expires at", val.softLimit.Unix())
+  return nil
+}
+
+// Master.ExtendLease
+//
+// Handles RPC calls from client who wishes to extent their existing lease.
+// A lease can only be extended when the requesting client is currently holding
+// the lease, and the extended lease does not exceed the hard limit on that
+// lease.
+//
+// param  - args: ExtentLeaseArgs {ClientId, Paths}. Paths is an array of
+//                filenames the client is requesting extensions on.
+//          reply: ExtendLeaseReply {File2SoftLimit}. If the client is eligible
+//                 for an extension on a file, then there will be a mapping
+//                 from that file to a SoftLimit time, otherwise it will be
+//                 mapped to an expired lease time.
+// return - nil.
+func (ms *MasterServer) ExtendLease(args ExtendLeaseArgs,
+                                    reply *ExtendLeaseReply) error {
+  reply.File2SoftLimit = make(map[string]time.Time)
+  for _, path := range args.Paths {
+    val, ok := ms.file2ClientLease[path]
+
+    // If no file->clientLease mapping exists, or the current lease holder is
+    // not the requesting client, or the hard limit on the client lease has
+    // expired, or if granting extension would reseult in lease exceeding the
+    // hard limit, map file to an exipired lease time.
+    if !ok || val.clientId != args.ClientId ||
+       val.hardLimit.Before(time.Now()) ||
+       time.Now().Add(SoftLeaseTime).After(val.hardLimit) {
+      reply.File2SoftLimit[path] = time.Now()
+    }
+
+    // Client is eligible for a lease extension, update soft limit
+    val.softLimit = time.Now().Add(SoftLeaseTime)
+    ms.file2ClientLease[path] = val
+    reply.File2SoftLimit[path] = val.softLimit
+  }
   return nil
 }
 
@@ -329,6 +406,7 @@ func StartMasterServer(me string) *MasterServer {
     chunkhandle2locations: make(map[uint64][]string),
     files: make(map[string]*FileInfo),
     namespaceManager: master.NewNamespaceManager(),
+    file2ClientLease: make(map[string]clientLease),
   }
 
   loadServerMeta(ms)

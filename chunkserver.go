@@ -101,6 +101,7 @@ func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReply) error {
 // Kill for testing.
 func (cs *ChunkServer) Kill() {
   cs.dead = true
+  cs.l.Close()
 }
 
 // Chunkserver meta data is laoded in StartChunkServer

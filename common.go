@@ -13,6 +13,12 @@ const HeartbeatInterval = 100 * time.Millisecond
 const CacheTimeout = time.Minute
 const CacheGCInterval = time.Minute
 
+// Client lease related const
+const ClockDrift = 5 * time.Millisecond
+const SoftLeaseTime = 1 * time.Second
+const HardLeaseTime = 30 * time.Second
+const ExtensionRequestInterval = 500 * time.Millisecond
+
 // Useful data structures
 type ChunkInfo struct {
   Path string
@@ -50,6 +56,25 @@ type FindLocationsReply struct {
   ChunkLocations []string
 }
 
+type NewLeaseArgs struct {
+  ClientId uint64
+  Path string
+}
+
+type NewLeaseReply struct {
+  SoftLimit time.Time
+  HardLimit time.Time
+}
+
+type ExtendLeaseArgs struct {
+  ClientId uint64
+  Paths []string
+}
+
+type ExtendLeaseReply struct {
+  File2SoftLimit map[string]time.Time
+}
+
 type AddChunkArgs struct {
   Path string
   ChunkIndex uint64
@@ -82,6 +107,7 @@ type ListReply struct {
 type GetFileInfoReply struct {
   Info FileInfo
 }
+
 // Chunkserver RPC
 type WriteArgs struct {
   ChunkHandle uint64
