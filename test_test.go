@@ -48,20 +48,6 @@ func testEnd() {
   fmt.Println()
 }
 
-// Returns error and prints error message if got is not true.
-func assertTrue(t *testing.T, got bool, msg string) {
-  if !got {
-    t.Error(msg)
-  }
-}
-
-// Returns error and prints error message if got is not false.
-func assertFalse(t *testing.T, got bool, msg string) {
-  if got {
-    t.Error(msg)
-  }
-}
-
 func TestNewClientId(t *testing.T) {
   testStart()
   ms := StartMasterServer(":4444")
