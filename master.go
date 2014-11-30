@@ -101,10 +101,23 @@ func (ms *MasterServer) Mkdir(args string,
   return nil
 }
 
+// List all files or directories under a specific directory.
+// Returns empty []string when the argument is not a directory
+// or it contains no files and directories.
 func (ms *MasterServer) List(args string,
-                              reply *ListReply) error {
+                             reply *ListReply) error {
   paths := ms.namespaceManager.List(args)
   reply.Paths = paths
+  return nil
+}
+
+// Delete a file or directory.
+// This operation will succeeds only if it is a valid path and
+// it contains no children.
+func (ms *MasterServer) Delete(args string,
+                               reply *bool) error {
+  ok := ms.namespaceManager.Delete(args)
+  *reply = ok
   return nil
 }
 
