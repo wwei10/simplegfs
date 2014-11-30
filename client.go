@@ -306,7 +306,6 @@ func (c *Client) extendLease(path *string) {
 // return - None.
 func (c *Client) leaseManager() {
   for {
-    fmt.Println(c.clientId, ": Client lease manager reporting for duty!")
     time.Sleep(ExtensionRequestInterval)
 
     // Only sent RPC request to master if there is pending extension requests.

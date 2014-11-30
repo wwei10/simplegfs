@@ -198,7 +198,10 @@ func (ms *MasterServer) NewLease(args NewLeaseArgs,
   // Check to see if anyone(including the requesting client) is currently
   // holding a lease to the requested file.
   if ok && time.Now().Before(val.softLimit) {
-    return errors.New("Lease held by other client.")
+    return errors.New("Cannot grant lease to client " +
+                      strconv.FormatUint(clientId, 10) +
+                      ". Lease held by client " +
+                      strconv.FormatUint(val.clientId, 10) + ".")
   }
   val = clientLease{
     clientId: clientId,
@@ -208,6 +211,8 @@ func (ms *MasterServer) NewLease(args NewLeaseArgs,
   ms.file2ClientLease[path] = val
   reply.SoftLimit = val.softLimit
   reply.HardLimit = val.hardLimit
+  fmt.Println("New lease granted to client", clientId, "for file", path,
+              "expires at", val.softLimit.Unix())
   return nil
 }
 

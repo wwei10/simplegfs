@@ -223,7 +223,7 @@ func TestClientLease(t *testing.T) {
     duration := time.Now().Add(5 * time.Second)
     offset := uint64(0)
     for time.Now().Before(duration) {
-      fmt.Println("Client1 writing...");
+      time.Sleep(HeartbeatInterval)
       c1.Write(testFile, offset, []byte(testData1))
       offset += uint64(len(testData1))
     }
@@ -233,6 +233,7 @@ func TestClientLease(t *testing.T) {
     duration := time.Now().Add(15 * time.Second)
     offset := uint64(0)
     for time.Now().Before(duration) {
+      time.Sleep(HeartbeatInterval)
       c2.Write(testFile, offset, []byte(testData2))
       offset += uint64(len(testData2))
     }
@@ -242,6 +243,7 @@ func TestClientLease(t *testing.T) {
     duration := time.Now().Add(10 * time.Second)
     offset := uint64(0)
     for time.Now().Before(duration) {
+      time.Sleep(HeartbeatInterval)
       c3.Write(testFile, offset, []byte(testData3))
       offset += uint64(len(testData3))
     }
@@ -251,20 +253,21 @@ func TestClientLease(t *testing.T) {
   time.Sleep(20 * time.Second)
   n, err := c1.Read(testFile, 1000, readBuf)
   if err != nil {
-    fmt.Println("ERROR:", err)
+    t.Error(err)
   } else {
     fmt.Println("Read", n, "from testFile", testFile)
     fmt.Println("Data:", string(readBuf))
   }
 
   // Shutdown master and chunk servers.
+  time.Sleep(5 * time.Second)
   ms.Kill()
   cs1.Kill()
   cs2.Kill()
   cs3.Kill()
 
   // Remove local disk space allocated for chunkserver.
-  // os.RemoveAll(ck1Path)
+  os.RemoveAll(ck1Path)
   os.RemoveAll(ck2Path)
   os.RemoveAll(ck3Path)
 
