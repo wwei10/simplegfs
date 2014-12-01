@@ -160,13 +160,36 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
     return errors.New("Chunk locations not found.")
   }
 
-  // Select primary and grant lease to the primary.
-  ms.grantLease(handle)
-
   // Set reply message.
   reply.ChunkHandle = handle
-  reply.PrimaryLocation = ms.ckhandle2locLease[handle].primary
   reply.ChunkLocations = ms.ckhandle2locLease[handle].replicas
+  return nil
+}
+
+// MasterServer.FindLeaseHolder
+//
+// Client calls FindLeaseHolder to get the primary chunkserver for a given
+// chunkhandle. If there is no current lease holder, MasterServer.grantLease
+// will automatically select one of the replicas to be the primary, and grant
+// lease to that primary.
+//
+// params - FindLeaseHolderArgs: ChunkHandle, unique id of the target chunk.
+//          FindLeaseHolderReply: Primary, the lease holder of the target chunk.
+//                                LeaseEnds, the lease expiration time.
+// return - nil.
+func (ms *MasterServer) FindLeaseHolder(args FindLeaseHolderArgs,
+                                        reply FindLeaseHolderReply) error {
+  ms.mutex.Lock()
+  defer ms.mutex.Unlock()
+  fmt.Println("MasterServer: FindLeaseHolder RPC")
+
+  // Select primary and grant lease to the primary.
+  ms.grantLease(args.ChunkHandle)
+
+  // Set reply message.
+  reply.Primary = ms.ckhandle2locLease[args.ChunkHandle].primary
+  reply.LeaseEnds = ms.ckhandle2locLease[args.ChunkHandle].leaseEnds
+
   return nil
 }
 
@@ -497,11 +520,11 @@ func parseServerMeta(ms *MasterServer, f *os.File) {
 
 // MasterServer.grantLease
 //
-// Called by MasterServer.FindLocations. First checks if there is a valid
+// Called by MasterServer.FindLeaseHolder. First checks if there is a valid
 // lease on the chunkhandle, if so return. If not, picks one replica as
 // primary, then grant lease to the primary.
 //
-// Note: ms.mutex is already held by MasterServer.FindLocations.
+// Note: ms.mutex is already held by MasterServer.FindLeaseHolder.
 //
 // params - chunkhandle: Unique ID of the chunk being requested lease on.
 // return - None.
@@ -523,7 +546,7 @@ func (ms *MasterServer) grantLease(chunkhandle uint64) {
 // Called by MasterServer.grantLease. Checks if the given chunk already has
 // an valid unexpired lease.
 //
-// Note: ms.mutex is already held by MasterServer.FindLocations.
+// Note: ms.mutex is already held by MasterServer.FindLeaseHolder.
 //
 // params - chunkhandle: Unique ID of the chunk being requested lease on.
 // return - True if there is a valid lease, false otherwise.

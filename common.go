@@ -58,7 +58,15 @@ type FindLocationsArgs struct {
 type FindLocationsReply struct {
   ChunkHandle uint64
   ChunkLocations []string
-  PrimaryLocation string
+}
+
+type FindLeaseHolderArgs struct {
+  ChunkHandle uint64
+}
+
+type FindLeaseHolderReply struct {
+  Primary string
+  LeaseEnds time.Time
 }
 
 type NewLeaseArgs struct {

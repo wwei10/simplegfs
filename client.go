@@ -12,7 +12,8 @@ import (
 type Client struct {
   masterAddr string
   clientId uint64
-  cache *cache.Cache
+  locationCache *cache.Cache
+  leaseHolderCache *cache.Cache
   file2Lease map[string]lease
 
   // Stores file name of the files that the client is trying to request lease
@@ -30,7 +31,8 @@ type lease struct {
 func NewClient(masterAddr string) *Client {
   c := &Client{
     masterAddr: masterAddr,
-    cache: cache.New(CacheTimeout, CacheGCInterval),
+    locationCache: cache.New(CacheTimeout, CacheGCInterval),
+    leaseHolderCache: cache.New(CacheTimeout, CacheGCInterval),
     file2Lease: make(map[string]lease),
   }
   reply := &NewClientIdReply{}
@@ -134,7 +136,8 @@ func (c *Client) Read(path string, offset uint64, bytes []byte) (n int, err erro
 
 // Release any resources held by client here.
 func (c *Client) Stop() {
-  c.cache.Stop()
+  c.locationCache.Stop()
+  c.leaseHolderCache.Stop()
 }
 
 func (c *Client) read(path string, chunkindex, start uint64, bytes []byte) (n int, err error) {
@@ -207,7 +210,7 @@ func (c *Client) addChunk(path string, chunkIndex uint64) (AddChunkReply, bool) 
 // Find chunkhandle and chunk locations given filename and chunkindex
 func (c *Client) findChunkLocations(path string, chunkindex uint64) (FindLocationsReply, bool) {
   key := fmt.Sprintf("%s,%d", path, chunkindex)
-  value, ok := c.cache.Get(key)
+  value, ok := c.locationCache.Get(key)
   if ok {
     reply := value.(*FindLocationsReply)
     return *reply, ok
@@ -220,7 +223,7 @@ func (c *Client) findChunkLocations(path string, chunkindex uint64) (FindLocatio
   ok = call(c.masterAddr, "MasterServer.FindLocations", args, reply)
   if ok {
     // Set cache entry to the answers we get.
-    c.cache.Set(key, reply)
+    c.locationCache.Set(key, reply)
   }
   return *reply, ok
 }
