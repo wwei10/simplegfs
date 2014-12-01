@@ -228,6 +228,40 @@ func (c *Client) findChunkLocations(path string, chunkindex uint64) (FindLocatio
   return *reply, ok
 }
 
+// Client.findLeaseHolder
+//
+// First check with Client.leaseHolderCache, if not found, RPC master server
+// with chunkhandle to find the current lease holder of the target chunk.
+//
+// params - chunkhandle: Unique ID of the target chunk.
+// return - FindLeaseHolderReply: Primary, the current lease holder.
+//                                LeaseEnds, the expiration time of the lease.
+//          bool: True if RPC returns with no error, false otherwise.
+func (c *Client) findLeaseHolder(chunkhandle uint64) (FindLeaseHolderReply,
+                                                      bool) {
+  // First check with the leaseHolderCache
+  key := fmt.Sprintf("%u", chunkhandle)
+  value, ok := c.leaseHolderCache.Get(key)
+  if ok {
+    reply := value.(*FindLeaseHolderReply)
+    return *reply, ok
+  }
+
+  // If not found in cache, RPC the master server.
+  args := FindLeaseHolderArgs{
+    ChunkHandle: chunkhandle,
+  }
+  reply := new(FindLeaseHolderReply)
+  ok = call(c.masterAddr, "MasterServer.FindLeaseHolder", args, reply)
+  if ok {
+    // Cache lease holder, set cache entry expiration time to lease expiration 
+    // time.
+    c.leaseHolderCache.SetWithTimeout(key, reply,
+                                      reply.LeaseEnds.Sub(time.Now()))
+  }
+  return *reply, false
+}
+
 func (c *Client) getFileInfo(path string) (FileInfo, bool) {
   args := GetFileInfoArgs{path}
   reply := new(GetFileInfoReply)

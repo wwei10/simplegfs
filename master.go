@@ -183,7 +183,7 @@ func (ms *MasterServer) FindLeaseHolder(args FindLeaseHolderArgs,
   defer ms.mutex.Unlock()
   fmt.Println("MasterServer: FindLeaseHolder RPC")
 
-  // Select primary and grant lease to the primary.
+  // If no current lease holer, select primary and grant lease to the primary.
   ms.grantLease(args.ChunkHandle)
 
   // Set reply message.
