@@ -132,8 +132,18 @@ func (ms *MasterServer) Delete(args string,
   return nil
 }
 
-// Client calls FindLoations to get chunk locations
-// given file name and chunk index.
+// MasterServer.FindLocations
+//
+// Client calls FindLoations to get chunk locations given file name and chunk
+// index.
+//
+// param  - FindLocationsArgs: Path, name of the file.
+//                             ChunkIndex, chunk index in file.
+//          FindLocationsReply: ChunkHandle, unique id of a chunk.
+//                              ChunkLocations, chunkserver address that hold
+//                              the target chunk.
+//                              PrimaryLocation, address of the primary replica.
+// return - Appropriate error if any, nil otherwise.
 func (ms *MasterServer) FindLocations(args FindLocationsArgs,
                                       reply *FindLocationsReply) error {
   ms.mutex.Lock()
@@ -143,14 +153,19 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
   chunkindex := args.ChunkIndex
   val, ok := ms.file2chunkhandle[path]
   if !ok {
-    // Filename not found
-    return errors.New("file not found")
+    // Filename not found.
+    return errors.New("File not found.")
   }
   handle, ok2 := val[chunkindex]
   if !ok2 {
-    // Chunk not found
-    return errors.New("chunk locations not found")
+    // Chunk not found.
+    return errors.New("Chunk locations not found.")
   }
+
+  // Select primary and grant lease to the primary.
+  ms.grantLease(handle)
+
+  // Set reply message.
   reply.ChunkHandle = handle
   reply.PrimaryLocation = ms.ckhandle2locLease[handle].primary
   reply.ChunkLocations = ms.ckhandle2locLease[handle].replicas
@@ -178,7 +193,7 @@ func (ms *MasterServer) AddChunk(args AddChunkArgs,
   chunks[chunkIndex] = handle
   reply.ChunkHandle = handle
   chunkLocations := getRandomLocations(ms.chunkservers, 3)
-  ms.ckhandle2locLease[handle] = locationsAndLease {
+  ms.ckhandle2locLease[handle] = locationsAndLease{
     // Primary is unassigned untill client RPCs FindLocation.
     primary: "",
     replicas: chunkLocations,
@@ -315,6 +330,75 @@ func (ms *MasterServer) Kill() {
   ms.l.Close()
 }
 
+func StartMasterServer(me string) *MasterServer {
+  ms := &MasterServer{
+    me: me,
+    serverMeta: "serverMeta" + me,
+    clientId: 1,
+    chunkhandle: 1,
+    chunkservers: make(map[string]time.Time),
+    file2chunkhandle: make(map[string](map[uint64]uint64)),
+    ckhandle2locLease: make(map[uint64]locationsAndLease),
+    files: make(map[string]*FileInfo),
+    namespaceManager: master.NewNamespaceManager(),
+    file2ClientLease: make(map[string]clientLease),
+  }
+
+  loadServerMeta(ms)
+
+  rpcs := rpc.NewServer()
+  rpcs.Register(ms)
+
+  l, e := net.Listen("tcp", ms.me)
+  if e != nil {
+    log.Fatal("listen error", e)
+  }
+  ms.l = l
+
+  // RPC handler
+  go func() {
+    for ms.dead == false {
+      conn, err := ms.l.Accept()
+      if err == nil && ms.dead == false {
+        go rpcs.ServeConn(conn)
+      } else if err == nil {
+        conn.Close()
+      } else if err != nil && ms.dead == false {
+        fmt.Println("Kill server.")
+        ms.Kill()
+      }
+    }
+  }()
+
+  // Background tasks
+  go func() {
+    for ms.dead == false {
+      ms.tick()
+      time.Sleep(HeartbeatInterval)
+    }
+  }()
+
+  return ms
+}
+
+
+// Helper functions
+
+// Pre-condition: ms.mutex.Lock() is called.
+func getRandomLocations(chunkservers map[string]time.Time, num uint) []string {
+  ret := make([]string, num)
+  // TODO: Better random algorithm
+  i := uint(0)
+  for cs := range chunkservers {
+    if i == num {
+      break
+    }
+    ret[i] = cs
+    i++
+  }
+  return ret
+}
+
 // tick() is called once per PingInterval to
 // handle background tasks
 func (ms *MasterServer) tick() {
@@ -413,71 +497,55 @@ func parseServerMeta(ms *MasterServer, f *os.File) {
   }
 }
 
-func StartMasterServer(me string) *MasterServer {
-  ms := &MasterServer{
-    me: me,
-    serverMeta: "serverMeta" + me,
-    clientId: 1,
-    chunkhandle: 1,
-    chunkservers: make(map[string]time.Time),
-    file2chunkhandle: make(map[string](map[uint64]uint64)),
-    ckhandle2locLease: make(map[uint64]locationsAndLease),
-    files: make(map[string]*FileInfo),
-    namespaceManager: master.NewNamespaceManager(),
-    file2ClientLease: make(map[string]clientLease),
+// MasterServer.grantLease
+//
+// Called by MasterServer.FindLocations. First checks if there is a valid
+// lease on the chunkhandle, if so return. If not, picks one replica as
+// primary, then grant lease to the primary.
+//
+// Note: ms.mutex is already held by MasterServer.FindLocations.
+//
+// params - chunkhandle: Unique ID of the chunk being requested lease on.
+// return - None.
+func (ms *MasterServer) grantLease(chunkhandle uint64) {
+  // No more work to do if there is a valid lease already.
+  if ms.checkLease(chunkhandle) {
+    return
   }
 
-  loadServerMeta(ms)
-
-  rpcs := rpc.NewServer()
-  rpcs.Register(ms)
-
-  l, e := net.Listen("tcp", ms.me)
-  if e != nil {
-    log.Fatal("listen error", e)
-  }
-  ms.l = l
-
-  // RPC handler
-  go func() {
-    for ms.dead == false {
-      conn, err := ms.l.Accept()
-      if err == nil && ms.dead == false {
-        go rpcs.ServeConn(conn)
-      } else if err == nil {
-        conn.Close()
-      } else if err != nil && ms.dead == false {
-        fmt.Println("Kill server.")
-        ms.Kill()
-      }
-    }
-  }()
-
-  // Background tasks
-  go func() {
-    for ms.dead == false {
-      ms.tick()
-      time.Sleep(HeartbeatInterval)
-    }
-  }()
-
-  return ms
+  // No valid lease, must grant a new one.
+  locLease := ms.ckhandle2locLease[chunkhandle]
+  locLease.primary = locLease.replicas[0]
+  locLease.leaseEnds = time.Now().Add(LeaseTimeout)
+  ms.ckhandle2locLease[chunkhandle] = locLease
 }
 
-
-// Helper functions
-
-// Pre-condition: ms.mutex.Lock() is called.
-func getRandomLocations(chunkservers map[string]time.Time, num uint) []string {
-  ret := make([]string, num)
-  // TODO: Better random algorithm
-  i := uint(0)
-  for cs := range chunkservers {
-    if i == num {
-      break
-    }
-    ret[i] = cs
-    i++
+// MasterServer.checkLease
+//
+// Called by MasterServer.grantLease. Checks if the given chunk already has
+// an valid unexpired lease.
+//
+// Note: ms.mutex is already held by MasterServer.FindLocations.
+//
+// params - chunkhandle: Unique ID of the chunk being requested lease on.
+// return - True if there is a valid lease, false otherwise.
+func (ms *MasterServer) checkLease(chunkhandle uint64) bool {
+  lease, ok := ms.ckhandle2locLease[chunkhandle]
+  if !ok {
+    log.Fatal("Chunkhandle to locationsAndLease mapping not found.")
   }
-  return ret
+
+  _, ok = ms.chunkservers[lease.primary]
+  // If primary is not a valid chunkserver that connected with the master, 
+  // return false.
+  if !ok {
+    return false
+  }
+
+  // If lease on the primary has already expired, return false.
+  if lease.leaseEnds.Before(time.Now()) {
+    return false
+  }
+
+  return true
 }
