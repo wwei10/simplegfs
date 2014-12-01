@@ -56,22 +56,18 @@ func (c *Cache) Get(key string) (interface{}, bool) {
   return entry.Value, true
 }
 
+// Set key with value using default timeout.
 func (c *Cache) Set(key string, value interface{}) {
   c.lock.Lock()
   defer c.lock.Unlock()
-  _, ok := c.kv[key]
-  if ok {
-    // Set new value
-    c.kv[key].Value = value
-    // Extend expiration time
-    c.kv[key].Time = time.Now().Add(c.timeout)
-  } else {
-    entry := &Entry{
-      Value: value,
-      Time: time.Now().Add(c.timeout),
-    }
-    c.kv[key] = entry
-  }
+  c.setWithTimeout(key, value, c.timeout)
+}
+
+// Set key with value using provided timeout.
+func (c *Cache) SetWithTimeout(key string, value interface{}, timeout time.Duration) {
+  c.lock.Lock()
+  defer c.lock.Unlock()
+  c.setWithTimeout(key, value, timeout)
 }
 
 func (c *Cache) Delete(key string) {
@@ -84,6 +80,24 @@ func (c *Cache) Size() int {
   c.lock.RLock()
   defer c.lock.RUnlock()
   return len(c.kv)
+}
+
+// Helper function for set.
+// Reset expiration to time.Now.Add(timeout).
+func (c *Cache) setWithTimeout(key string, value interface{}, timeout time.Duration) {
+  _, ok := c.kv[key]
+  if ok {
+    // Set new value
+    c.kv[key].Value = value
+    // Extend expiration time
+    c.kv[key].Time = time.Now().Add(timeout)
+  } else {
+    entry := &Entry{
+      Value: value,
+      Time: time.Now().Add(timeout),
+    }
+    c.kv[key] = entry
+  }
 }
 
 // Purges all entries which expires.
