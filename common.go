@@ -144,6 +144,15 @@ type ReadReply struct {
   Bytes []byte
 }
 
+type PushDataArgs struct {
+  ClientId uint64
+  Timestamp time.Time
+  Data []byte
+}
+
+type PushDataReply struct {
+}
+
 // Helper functions
 func call(srv string, rpcname string,
           args interface{}, reply interface{}) bool {

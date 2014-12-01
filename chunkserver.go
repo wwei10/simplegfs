@@ -40,6 +40,15 @@ type ChunkServer struct {
   // Possible to have ChunkServer.mutex held first, therefore do not acquire
   // ChunkServer.mutex after acuqire this lock.
   pendingExtensionsLock sync.RWMutex
+
+  // Stores client's data in memory before commit to disk.
+  data map[dataId][]byte
+  dataMutex sync.RWMutex
+}
+
+type dataId struct {
+  clientId uint64
+  timestamp time.Time
 }
 
 // RPC handler declared here
@@ -116,6 +125,37 @@ func (cs *ChunkServer) Kill() {
   cs.l.Close()
 }
 
+// ChunkServer.PushData
+//
+// Handles client RPC to store data in memory. Data is identified with a
+// mapping from DataID:[ClientID, Timestamp] -> Data.
+// This function acquires lock on ChunkServer.dataMutex
+//
+// params - PushDataArgs: ClientId, client's ID.
+//                        Timestamp, client assigned timestamp, monotonically
+//                        increasing on each client instance.
+// return - nil.
+func (cs *ChunkServer) PushData(args PushDataArgs) error {
+  // Create dataId by clientid and timestampe.
+  dataId := dataId{
+    clientId: args.ClientId,
+    timestamp: args.Timestamp,
+  }
+
+  // Acquire lock on ChunkServer.Data
+  cs.dataMutex.Lock()
+  defer cs.dataMutex.Unlock()
+
+  // If data already exists, then just return.
+  if _, ok := cs.data[dataId]; ok {
+    return nil
+  }
+
+  // Otherwise push data into chunkserver's memory.
+  cs.data[dataId] = args.Data
+  return nil
+}
+
 func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
   cs := &ChunkServer{
     dead: false,
@@ -124,6 +164,7 @@ func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
     chunkServerMeta: "chunkServerMeta" + me,
     path: path,
     chunks: make(map[uint64]ChunkInfo),
+    data: make(map[dataId][]byte),
   }
 
   rpcs := rpc.NewServer()
