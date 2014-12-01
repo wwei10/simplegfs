@@ -25,6 +25,7 @@ type ChunkServer struct {
   // written to and has a lower file version number than client's file version
   // number.
   chunkhandle2VersionNum map[uint64]uint64
+
   // Filename of a file that contains chunkserver meta data
   // TODO Should later mutates into a log file of some sort
   chunkServerMeta string
@@ -32,6 +33,13 @@ type ChunkServer struct {
   path string
   chunks map[uint64]ChunkInfo // Store a mapping from handle to information.
   mutex sync.RWMutex
+
+  // Stores pending lease extension requests on chunkhandles.
+  pendingExtensions []uint64
+  // Only used by Hearbeat and ChunkServer.addChunkExtensionRequest.
+  // Possible to have ChunkServer.mutex held first, therefore do not acquire
+  // ChunkServer.mutex after acuqire this lock.
+  pendingExtensionsLock sync.RWMutex
 }
 
 // RPC handler declared here
@@ -67,6 +75,10 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
     chunkInfo.Length = off + length
     reportChunk(cs, chunkInfo)
   }
+
+  // Since we are still writing to the chunk, we must continue request
+  // lease extensions on the chunk.
+  cs.addChunkExtensionRequest(chunkhandle)
   return nil
 }
 
@@ -102,6 +114,76 @@ func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReply) error {
 func (cs *ChunkServer) Kill() {
   cs.dead = true
   cs.l.Close()
+}
+
+func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
+  cs := &ChunkServer{
+    dead: false,
+    me: me,
+    masterAddr: masterAddr,
+    chunkServerMeta: "chunkServerMeta" + me,
+    path: path,
+    chunks: make(map[uint64]ChunkInfo),
+  }
+
+  rpcs := rpc.NewServer()
+  rpcs.Register(cs)
+
+  l, e := net.Listen("tcp", cs.me)
+  if e != nil {
+    log.Fatal("listen error", e)
+  }
+  cs.l = l
+
+
+  // RPC handler for client library.
+  go func() {
+    for cs.dead == false {
+      conn, err := cs.l.Accept()
+      if err == nil && cs.dead == false {
+        go rpcs.ServeConn(conn)
+      } else if err == nil {
+        conn.Close()
+      } else if err != nil && cs.dead == false {
+        fmt.Println("Kill chunk server.")
+        cs.Kill()
+      }
+    }
+  }()
+
+  // Heartbeat
+  go func() {
+    for cs.dead == false {
+      // Send lease extension requests with Hearbeat message, if any.
+      cs.pendingExtensionsLock.Lock()
+      args := &HeartbeatArgs{
+        Addr: cs.me,
+        PendingExtensions: cs.pendingExtensions,
+      }
+      // Clear pending extensions.
+      cs.pendingExtensions = nil
+      cs.pendingExtensionsLock.Unlock()
+      var reply HeartbeatReply
+      call(cs.masterAddr, "MasterServer.Heartbeat", args, &reply)
+      time.Sleep(HeartbeatInterval)
+    }
+  }()
+
+  return cs
+}
+
+// Helper functions
+func reportChunk(cs *ChunkServer, info ChunkInfo) {
+  args := ReportChunkArgs{
+    ServerAddress: cs.me,
+    ChunkHandle: info.ChunkHandle,
+    ChunkIndex: info.ChunkIndex,
+    Length: info.Length,
+    Path: info.Path,
+  }
+  reply := new(ReportChunkReply)
+  // TODO: What if this RPC call failed?
+  go call(cs.masterAddr, "MasterServer.ReportChunk", args, reply)
 }
 
 // Chunkserver meta data is laoded in StartChunkServer
@@ -199,64 +281,18 @@ func decodeMap(b *bytes.Buffer) map[uint64]uint64 {
   return decodedMap
 }
 
-func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
-  cs := &ChunkServer{
-    dead: false,
-    me: me,
-    masterAddr: masterAddr,
-    chunkServerMeta: "chunkServerMeta" + me,
-    path: path,
-    chunks: make(map[uint64]ChunkInfo),
-  }
-
-  rpcs := rpc.NewServer()
-  rpcs.Register(cs)
-
-  l, e := net.Listen("tcp", cs.me)
-  if e != nil {
-    log.Fatal("listen error", e)
-  }
-  cs.l = l
-
-
-  // RPC handler for client library.
-  go func() {
-    for cs.dead == false {
-      conn, err := cs.l.Accept()
-      if err == nil && cs.dead == false {
-        go rpcs.ServeConn(conn)
-      } else if err == nil {
-        conn.Close()
-      } else if err != nil && cs.dead == false {
-        fmt.Println("Kill chunk server.")
-        cs.Kill()
-      }
-    }
-  }()
-
-  // Heartbeat
-  go func() {
-    for cs.dead == false {
-      args := &HeartbeatArgs{cs.me}
-      var reply HeartbeatReply
-      call(cs.masterAddr, "MasterServer.Heartbeat", args, &reply)
-      time.Sleep(HeartbeatInterval)
-    }
-  }()
-
-  return cs
-}
-
-// Helper functions
-func reportChunk(cs *ChunkServer, info ChunkInfo) {
-  args := ReportChunkArgs{
-    ServerAddress: cs.me,
-    ChunkHandle: info.ChunkHandle,
-    ChunkIndex: info.ChunkIndex,
-    Length: info.Length,
-    Path: info.Path,
-  }
-  reply := new(ReportChunkReply)
-  // TODO: What if this RPC call failed?
-  go call(cs.masterAddr, "MasterServer.ReportChunk", args, reply)
+// ChunkServer.addChunkExtensionRequest
+//
+// Called by ChunkServer.Write.
+// Add chunkhandle and time of write request to Chunkserver.pendingExtensions.
+// These requests are batched together and piggybacked onto Heartbeat messages
+// with the master.
+// Note: ChunkServer.mutex is held by ChunkServer.Write.
+//
+// params - chunkhandle: Unique ID for the chunk to be request extension on.
+// return - None.
+func (cs *ChunkServer) addChunkExtensionRequest(chunkhandle uint64) {
+  cs.pendingExtensionsLock.Lock()
+  defer cs.pendingExtensionsLock.Unlock()
+  cs.pendingExtensions = append(cs.pendingExtensions, chunkhandle)
 }

@@ -28,18 +28,17 @@ type MasterServer struct {
 
   chunkservers map[string]time.Time
   file2chunkhandle map[string](map[uint64]uint64)
-  ckhandle2locLease map[uint64]locationsAndLease
   files map[string]*FileInfo // Stores file to information mapping
-
-  // Filename -> version number, the highest version number of all the chunks
-  // belong to that file
-  file2VersionNumber map[string]uint64
 
   // Filename -> clientLease
   file2ClientLease map[string]clientLease
 
   // Namespace manager
   namespaceManager *master.NamespaceManager
+
+  // Chunk server lease management related fields.
+  // Map chunkhandle to its replica locations, primary location, and lease time.
+  ckhandle2locLease map[uint64]locationsAndLease
 }
 
 // Client lease management
@@ -50,14 +49,10 @@ type clientLease struct {
 }
 
 // Used for master's mapping from chunkhandle to locations and lease.
-// replicas - All the locations that store the chunk.
-// primary - One of the replicas selected by master, entity that holds and
-//           renews lease on the chunk.
-// leaseEnds - Time of when the lease expires.
 type locationsAndLease struct {
-  primary string
-  replicas []string
-  leaseEnds time.Time
+  primary string // Selected by master, holds and renews lease on the chunk.
+  replicas []string // Chunkservers' addresses that store the chunk.
+  leaseEnds time.Time // Time of when the lease expires.
 }
 
 // RPC call handlers declared here
@@ -67,6 +62,9 @@ type locationsAndLease struct {
 func (ms *MasterServer) Heartbeat(args *HeartbeatArgs,
                                   reply *HeartbeatReply) error {
   ms.chunkservers[args.Addr] = time.Now()
+  if len(args.PendingExtensions) > 0 {
+    ms.csExtendLease(args.Addr, args.PendingExtensions)
+  }
   reply.Reply = "Hello, world."
   return nil
 }
@@ -536,7 +534,7 @@ func (ms *MasterServer) checkLease(chunkhandle uint64) bool {
   }
 
   _, ok = ms.chunkservers[lease.primary]
-  // If primary is not a valid chunkserver that connected with the master, 
+  // If primary is not a valid chunkserver that connected with the master,
   // return false.
   if !ok {
     return false
@@ -548,4 +546,31 @@ func (ms *MasterServer) checkLease(chunkhandle uint64) bool {
   }
 
   return true
+}
+
+// MasterServer.csExtendLease
+//
+// Called by Hearbeat RPC handler, when chunkservers heartbeat message includes
+// lease extension requests.
+// Lease extensions are only granted when the requesting chunkserver is the
+// primary replica.
+// This function acquires MasterServer.mutex.
+//
+// params - cs: Chunkserver's address.
+//          chunks: A list of chunkhandles the chunkserver wants lease
+//                  extensions on.
+// return - None.
+func (ms *MasterServer) csExtendLease(cs string, chunks []uint64) {
+  ms.mutex.Lock()
+  defer ms.mutex.Unlock()
+  // For each of the lease extension requests
+  for _, chunkhandle := range chunks {
+    locLease, ok := ms.ckhandle2locLease[chunkhandle]
+    // If the entry exists and the current lease holder is the requesting
+    // chunkserver, extend the lease.
+    if ok && locLease.primary == cs {
+      locLease.leaseEnds = time.Now().Add(LeaseTimeout)
+      ms.ckhandle2locLease[chunkhandle] = locLease
+    }
+  }
 }

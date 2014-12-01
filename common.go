@@ -39,6 +39,7 @@ type FileInfo struct {
 // Master server RPC
 type HeartbeatArgs struct {
   Addr string
+  PendingExtensions []uint64
 }
 
 type HeartbeatReply struct {
