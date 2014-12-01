@@ -19,6 +19,9 @@ const SoftLeaseTime = 1 * time.Second
 const HardLeaseTime = 30 * time.Second
 const ExtensionRequestInterval = 500 * time.Millisecond
 
+// ChunkServer lease related const
+const LeaseTimeout = 60 * time.Second
+
 // Useful data structures
 type ChunkInfo struct {
   Path string
@@ -54,6 +57,7 @@ type FindLocationsArgs struct {
 type FindLocationsReply struct {
   ChunkHandle uint64
   ChunkLocations []string
+  PrimaryLocation string
 }
 
 type NewLeaseArgs struct {

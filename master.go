@@ -28,8 +28,7 @@ type MasterServer struct {
 
   chunkservers map[string]time.Time
   file2chunkhandle map[string](map[uint64]uint64)
-  chunkhandle2locations map[uint64][]string
-  chunkhandle2locationsAndLease map[uint64]locationsAndLease
+  ckhandle2locLease map[uint64]locationsAndLease
   files map[string]*FileInfo // Stores file to information mapping
 
   // Filename -> version number, the highest version number of all the chunks
@@ -56,8 +55,8 @@ type clientLease struct {
 //           renews lease on the chunk.
 // leaseEnds - Time of when the lease expires.
 type locationsAndLease struct {
-  replicas []string
   primary string
+  replicas []string
   leaseEnds time.Time
 }
 
@@ -153,7 +152,8 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
     return errors.New("chunk locations not found")
   }
   reply.ChunkHandle = handle
-  reply.ChunkLocations = ms.chunkhandle2locations[handle]
+  reply.PrimaryLocation = ms.ckhandle2locLease[handle].primary
+  reply.ChunkLocations = ms.ckhandle2locLease[handle].replicas
   return nil
 }
 
@@ -178,7 +178,13 @@ func (ms *MasterServer) AddChunk(args AddChunkArgs,
   chunks[chunkIndex] = handle
   reply.ChunkHandle = handle
   chunkLocations := getRandomLocations(ms.chunkservers, 3)
-  ms.chunkhandle2locations[handle] = chunkLocations
+  ms.ckhandle2locLease[handle] = locationsAndLease {
+    // Primary is unassigned untill client RPCs FindLocation.
+    primary: "",
+    replicas: chunkLocations,
+    // Lease is invalid when chunk initially added.
+    leaseEnds: time.Now(),
+  }
   reply.ChunkLocations = chunkLocations
   storeServerMeta(ms)
   return nil
@@ -415,8 +421,7 @@ func StartMasterServer(me string) *MasterServer {
     chunkhandle: 1,
     chunkservers: make(map[string]time.Time),
     file2chunkhandle: make(map[string](map[uint64]uint64)),
-    chunkhandle2locations: make(map[uint64][]string),
-    chunkhandle2locationsAndLease: make(map[uint64]locationsAndLease),
+    ckhandle2locLease: make(map[uint64]locationsAndLease),
     files: make(map[string]*FileInfo),
     namespaceManager: master.NewNamespaceManager(),
     file2ClientLease: make(map[string]clientLease),
