@@ -39,6 +39,21 @@ func TestGetAndSet(t *testing.T) {
   testGet(t, c, "/abc", false, "")
 }
 
+func TestSetWithTimeout(t *testing.T) {
+  c := New(time.Millisecond * 1, time.Minute)
+  defer c.Stop()
+  c.Set("/usr", Info{"sam"})
+  time.Sleep(time.Millisecond)
+  testGet(t, c, "/usr", false, "")
+  c.SetWithTimeout("/usr", Info{"david"}, time.Second)
+  c.SetWithTimeout("/usr/bin", Info{"dawson"}, time.Second)
+  testGet(t, c, "/usr", true, "david")
+  testGet(t, c, "/usr/bin", true, "dawson")
+  time.Sleep(time.Second)
+  testGet(t, c, "/usr", false, "")
+  testGet(t, c, "/usr/bin", false, "")
+}
+
 func TestExpiration(t *testing.T) {
   c := New(time.Second * 1, time.Minute)
   defer c.Stop()
