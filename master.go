@@ -29,6 +29,7 @@ type MasterServer struct {
   chunkservers map[string]time.Time
   file2chunkhandle map[string](map[uint64]uint64)
   chunkhandle2locations map[uint64][]string
+  chunkhandle2locationsAndLease map[uint64]locationsAndLease
   files map[string]*FileInfo // Stores file to information mapping
 
   // Filename -> version number, the highest version number of all the chunks
@@ -47,6 +48,17 @@ type clientLease struct {
   clientId uint64 // The client who holds the lease before softLimit expires
   softLimit time.Time // The lease ends at softLimit, can be extended
   hardLimit time.Time // The hard limit on how long a client can have the lease
+}
+
+// Used for master's mapping from chunkhandle to locations and lease.
+// replicas - All the locations that store the chunk.
+// primary - One of the replicas selected by master, entity that holds and
+//           renews lease on the chunk.
+// leaseEnds - Time of when the lease expires.
+type locationsAndLease struct {
+  replicas []string
+  primary string
+  leaseEnds time.Time
 }
 
 // RPC call handlers declared here
@@ -404,6 +416,7 @@ func StartMasterServer(me string) *MasterServer {
     chunkservers: make(map[string]time.Time),
     file2chunkhandle: make(map[string](map[uint64]uint64)),
     chunkhandle2locations: make(map[uint64][]string),
+    chunkhandle2locationsAndLease: make(map[uint64]locationsAndLease),
     files: make(map[string]*FileInfo),
     namespaceManager: master.NewNamespaceManager(),
     file2ClientLease: make(map[string]clientLease),
