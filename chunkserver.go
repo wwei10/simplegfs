@@ -48,7 +48,7 @@ type ChunkServer struct {
 
 type dataId struct {
   clientId uint64
-  timestamp time.Time
+  timestamp int64
 }
 
 // RPC handler declared here
@@ -136,6 +136,8 @@ func (cs *ChunkServer) Kill() {
 //                        increasing on each client instance.
 // return - nil.
 func (cs *ChunkServer) PushData(args PushDataArgs) error {
+  fmt.Println("ChunkServer: PushData RPC")
+
   // Create dataId by clientid and timestampe.
   dataId := dataId{
     clientId: args.ClientId,

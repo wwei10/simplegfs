@@ -146,7 +146,7 @@ type ReadReply struct {
 
 type PushDataArgs struct {
   ClientId uint64
-  Timestamp time.Time
+  Timestamp int64
   Data []byte
 }
 

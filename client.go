@@ -182,17 +182,27 @@ func (c *Client) write(path string, chunkindex, start, end uint64, bytes []byte)
     chunkHandle = reply.ChunkHandle
     chunkLocations = reply.ChunkLocations
   }
+
+  // Write data to each replicas.
   for _, cs := range chunkLocations {
-    args := WriteArgs {
+    // First push data to each replicas' memory.
+    pushDataArgs := PushDataArgs{
+      ClientId: c.clientId,
+      Timestamp: time.Now().Unix(),
+      Data: bytes,
+    }
+    pushDataReply := new(PushDataReply)
+    call(cs, "ChunkServer.PushData", pushDataArgs, pushDataReply)
+
+    writeArgs := WriteArgs{
       Path: path,
       ChunkIndex: chunkindex,
       ChunkHandle: chunkHandle,
       Offset: start,
       Bytes: bytes,
     }
-    reply := new(WriteReply)
-    c.blockOnLease(&path)
-    call(cs, "ChunkServer.Write", args, reply)
+    writeReply := new(WriteReply)
+    call(cs, "ChunkServer.Write", writeArgs, writeReply)
   }
   return true
 }
