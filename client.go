@@ -103,7 +103,6 @@ func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
 
 // Read file at a specific offset
 func (c *Client) Read(path string, offset uint64, bytes []byte) (n int, err error) {
-  fmt.Println("yanlei", path, offset)
   info, ok := c.getFileInfo(path)
   if !ok {
     return 0, errors.New("file not found")
