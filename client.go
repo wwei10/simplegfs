@@ -93,7 +93,9 @@ func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
         endOffset = rem
       }
     }
-    c.write(path, i, startOffset, endOffset, bytes[startIdx:startIdx+endOffset-startOffset])
+    if ok := c.write(path, i, startOffset, endOffset, bytes[startIdx:startIdx+endOffset-startOffset]); !ok {
+      return false
+    }
     startIdx += endOffset - startOffset
   }
   return true
@@ -101,6 +103,7 @@ func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
 
 // Read file at a specific offset
 func (c *Client) Read(path string, offset uint64, bytes []byte) (n int, err error) {
+  fmt.Println("yanlei", path, offset)
   info, ok := c.getFileInfo(path)
   if !ok {
     return 0, errors.New("file not found")
@@ -171,6 +174,7 @@ func (c *Client) write(path string, chunkindex, start, end uint64, bytes []byte)
   var chunkHandle uint64
   var chunkLocations []string
   if !ok {
+    // If chunk does not exist, add the chunk.
     reply, ok := c.addChunk(path, chunkindex)
     if !ok {
       return false
@@ -178,31 +182,43 @@ func (c *Client) write(path string, chunkindex, start, end uint64, bytes []byte)
     chunkHandle = reply.ChunkHandle
     chunkLocations = reply.ChunkLocations
   } else {
-  // Contact chunk location directly and apply the write
     chunkHandle = reply.ChunkHandle
     chunkLocations = reply.ChunkLocations
   }
 
-  // Write data to each replicas.
-  for _, cs := range chunkLocations {
-    // First push data to each replicas' memory.
-    pushDataArgs := PushDataArgs{
-      ClientId: c.clientId,
-      Timestamp: time.Now().Unix(),
-      Data: bytes,
-    }
-    pushDataReply := new(PushDataReply)
-    call(cs, "ChunkServer.PushData", pushDataArgs, pushDataReply)
+  // Get the primary location.
+  primary := c.findLeaseHolder(chunkHandle)
 
-    writeArgs := WriteArgs{
-      Path: path,
-      ChunkIndex: chunkindex,
-      ChunkHandle: chunkHandle,
-      Offset: start,
-      Bytes: bytes,
+  // Construct dataId with clientId and current timestamp.
+  dataId := DataId{
+    ClientId: c.clientId,
+    Timestamp: time.Now(),
+  }
+  pushDataArgs := PushDataArgs{
+    DataId: dataId,
+    Data: bytes,
+  }
+
+  // First push data to each replicas' memory.
+  for _, cs := range chunkLocations {
+    pushDataReply := new(PushDataReply)
+    if ok := call(cs, "ChunkServer.PushData", pushDataArgs, pushDataReply); !ok {
+      return false;
     }
-    writeReply := new(WriteReply)
-    call(cs, "ChunkServer.Write", writeArgs, writeReply)
+  }
+
+  // Once data is pushed to all replicas, send write request to the primary.
+  writeArgs := WriteArgs{
+    DataId: dataId,
+    Path: path,
+    ChunkIndex: chunkindex,
+    ChunkHandle: chunkHandle,
+    Offset: start,
+    ChunkLocations: chunkLocations,
+  }
+  writeReply := new(WriteReply)
+  if ok := call(primary, "ChunkServer.Write", writeArgs, writeReply); !ok {
+    return false
   }
   return true
 }
@@ -244,17 +260,14 @@ func (c *Client) findChunkLocations(path string, chunkindex uint64) (FindLocatio
 // with chunkhandle to find the current lease holder of the target chunk.
 //
 // params - chunkhandle: Unique ID of the target chunk.
-// return - FindLeaseHolderReply: Primary, the current lease holder.
-//                                LeaseEnds, the expiration time of the lease.
-//          bool: True if RPC returns with no error, false otherwise.
-func (c *Client) findLeaseHolder(chunkhandle uint64) (FindLeaseHolderReply,
-                                                      bool) {
+// return - string: Location of the primary chunkserver.
+func (c *Client) findLeaseHolder(chunkhandle uint64) string {
   // First check with the leaseHolderCache
-  key := fmt.Sprintf("%u", chunkhandle)
+  key := fmt.Sprintf("%d", chunkhandle)
   value, ok := c.leaseHolderCache.Get(key)
   if ok {
     reply := value.(*FindLeaseHolderReply)
-    return *reply, ok
+    return reply.Primary
   }
 
   // If not found in cache, RPC the master server.
@@ -264,12 +277,12 @@ func (c *Client) findLeaseHolder(chunkhandle uint64) (FindLeaseHolderReply,
   reply := new(FindLeaseHolderReply)
   ok = call(c.masterAddr, "MasterServer.FindLeaseHolder", args, reply)
   if ok {
-    // Cache lease holder, set cache entry expiration time to lease expiration 
+    // Cache lease holder, set cache entry expiration time to lease expiration
     // time.
     c.leaseHolderCache.SetWithTimeout(key, reply,
                                       reply.LeaseEnds.Sub(time.Now()))
   }
-  return *reply, false
+  return reply.Primary
 }
 
 func (c *Client) getFileInfo(path string) (FileInfo, bool) {

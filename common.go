@@ -34,6 +34,11 @@ type FileInfo struct {
   Length int64
 }
 
+type DataId struct {
+  ClientId uint64
+  Timestamp time.Time
+}
+
 // Message types
 
 // Master server RPC
@@ -123,11 +128,12 @@ type GetFileInfoReply struct {
 
 // Chunkserver RPC
 type WriteArgs struct {
+  DataId DataId
   ChunkHandle uint64
   ChunkIndex uint64
   Offset uint64
-  Bytes []byte
   Path string
+  ChunkLocations []string
 }
 
 type WriteReply struct {
@@ -145,8 +151,7 @@ type ReadReply struct {
 }
 
 type PushDataArgs struct {
-  ClientId uint64
-  Timestamp int64
+  DataId DataId
   Data []byte
 }
 

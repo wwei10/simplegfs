@@ -178,7 +178,7 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
 //                                LeaseEnds, the lease expiration time.
 // return - nil.
 func (ms *MasterServer) FindLeaseHolder(args FindLeaseHolderArgs,
-                                        reply FindLeaseHolderReply) error {
+                                        reply *FindLeaseHolderReply) error {
   ms.mutex.Lock()
   defer ms.mutex.Unlock()
   fmt.Println("MasterServer: FindLeaseHolder RPC")

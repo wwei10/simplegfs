@@ -149,7 +149,9 @@ func TestReadWrite(t *testing.T) {
   if c.Create("/a") != true {
     t.Error("c should create '/a' successfully.")
   }
-  c.Write("/a", 0, []byte("hello, world. nice to meet you."))
+  if ok := c.Write("/a", 0, []byte("hello, world. nice to meet you.")); !ok {
+    t.Error("Write request failed.")
+  }
 
   time.Sleep(HeartbeatInterval)
 
@@ -292,6 +294,181 @@ func TestClientLease(t *testing.T) {
 
   // Shutdown master and chunk servers.
   time.Sleep(5 * time.Second)
+  ms.Kill()
+  cs1.Kill()
+  cs2.Kill()
+  cs3.Kill()
+
+  // Remove local disk space allocated for chunkserver.
+  os.RemoveAll(ck1Path)
+  os.RemoveAll(ck2Path)
+  os.RemoveAll(ck3Path)
+
+  testEnd()
+}
+
+// 3 chunk servers + 3 clients sequantial read/write + concurrent read/write
+// test.
+func TestChunkServerLease(t *testing.T) {
+  testStart()
+
+  // Master definitions.
+  msAddr := ":4444"
+
+  // Chunkserver definitions.
+  ck1Path := "/var/tmp/ck1"
+  ck2Path := "/var/tmp/ck2"
+  ck3Path := "/var/tmp/ck3"
+  ck1Addr := ":5555"
+  ck2Addr := ":6666"
+  ck3Addr := ":7777"
+
+  // Client definitions.
+  testFile1 := "/a"
+  testFile2 := "/b"
+  testData1 := "testData1: The quick brown fox jumps over the lazy dog.\n"
+  testData2 := "testData2: The quick brown fox jumps over the lazy dog.\n"
+  testData3 := "testData3: The quick brown fox jumps over the lazy dog.\n"
+  testData4 := "testData4: The quick brown fox jumps over the lazy dog.\n"
+  readBuf := make([]byte, len(testData1))
+  readBuf2 := make([]byte, 7000)
+
+  // Fire up master server.
+  ms := StartMasterServer(msAddr)
+  time.Sleep(2 * HeartbeatInterval)
+
+  // Make space on local for chunkserver to store data.
+  os.Mkdir(ck1Path, FilePermRWX)
+  os.Mkdir(ck2Path, FilePermRWX)
+  os.Mkdir(ck3Path, FilePermRWX)
+
+  // Fire up chunk servers.
+  cs1 := StartChunkServer(msAddr, ck1Addr, ck1Path)
+  cs2 := StartChunkServer(msAddr, ck2Addr, ck2Path)
+  cs3 := StartChunkServer(msAddr, ck3Addr, ck3Path)
+
+  // Create client instances.
+  c1 := NewClient(msAddr)
+  c2 := NewClient(msAddr)
+  c3 := NewClient(msAddr)
+  time.Sleep(HeartbeatInterval)
+
+  // ----- Test sequential read and write -----
+
+  // Create a test file.
+  if c1.Create(testFile1) != true {
+    t.Error("Failed to create testfile")
+  }
+
+  // Write once.
+  offset := uint64(0)
+  if ok := c1.Write(testFile1, offset, []byte(testData1)); !ok {
+    t.Error("Write request failed")
+  }
+
+  // Read and verify.
+  if n, _ := c1.Read(testFile1, 0, readBuf); n != len(testData1) ||
+  string(readBuf) != testData1 {
+    t.Error("Client 1 reads:", string(readBuf),". Should read:", testData1)
+  }
+
+  // Write once.
+  offset += uint64(len(testData1))
+  if ok := c2.Write(testFile1, offset, []byte(testData2)); !ok {
+    t.Error("Write request failed")
+  }
+
+  // Read and verify.
+  if n, _ := c2.Read(testFile1, offset, readBuf); n != len(testData2) ||
+  string(readBuf) != testData2 {
+    t.Error("Client 2 reads:", string(readBuf),". Should read:", testData2)
+  }
+
+  // Write once.
+  offset += uint64(len(testData2))
+  if ok := c3.Write(testFile1, offset, []byte(testData3)); !ok {
+    t.Error("Write request failed")
+  }
+
+  // Read and verify.
+  if n, _ := c3.Read(testFile1, offset, readBuf); n != len(testData3) ||
+  string(readBuf) != testData3 {
+    t.Error("Client 3 reads:", string(readBuf),". Should read:", testData3)
+  }
+
+  // Create a second test file.
+  if (c2.Create(testFile2) != true) {
+    t.Error("Failed to create testfile2")
+  }
+
+  // Write once.
+  offset = uint64(0)
+  if ok := c1.Write(testFile2, offset, []byte(testData4)); !ok {
+    t.Error("Write request failed")
+  }
+
+  // Read and verify.
+  if n, _ := c3.Read(testFile2, offset, readBuf); n != len(testData4) ||
+  string(readBuf) != testData4 {
+    t.Error("Client 3 reads:", string(readBuf),". Should read:", testData4)
+  }
+
+  // ----- Test concurrent write -----
+  // Write concurrently, there is no way to deterministically the read output
+  // against preset value, therefore we can only verify partial outputs are
+  // valid and testDatas are not interleaving each other.
+  //
+  // Each client runs for 5 seconds, and writes to the same file conccurently,
+  // starting from offset 0.
+  go func() {
+    duration := time.Now().Add(5 * time.Second)
+    offset = uint64(0)
+    for time.Now().Before(duration) {
+      time.Sleep(HeartbeatInterval)
+      c1.Write(testFile1, offset, []byte(testData1))
+      offset += uint64(len(testData1))
+    }
+  }()
+  go func() {
+    duration := time.Now().Add(5 * time.Second)
+    offset = uint64(0)
+    for time.Now().Before(duration) {
+      time.Sleep(HeartbeatInterval)
+      c2.Write(testFile1, offset, []byte(testData2))
+      offset += uint64(len(testData2))
+    }
+  }()
+  go func() {
+    duration := time.Now().Add(5 * time.Second)
+    offset = uint64(0)
+    for time.Now().Before(duration) {
+      time.Sleep(HeartbeatInterval)
+      c3.Write(testFile1, offset, []byte(testData3))
+      offset += uint64(len(testData3))
+    }
+  }()
+
+  // Read contents of the file while writes are still ongoing.
+  time.Sleep(1 * time.Second)
+  n, err := c1.Read(testFile1, 0, readBuf2)
+  if err != nil {
+    t.Error(err)
+  } else {
+    fmt.Println("Read", n, "from testFile", testFile1)
+    fmt.Println(string(readBuf2))
+  }
+
+  // Read contents of the file after writes are finished.
+  time.Sleep(5 * time.Second)
+  n, err = c2.Read(testFile1, 0, readBuf2)
+  if err != nil {
+    t.Error(err)
+  } else {
+    fmt.Println("Read", n, "from testFile", testFile1)
+    fmt.Println(string(readBuf2))
+  }
+
+  // Shutdown master and chunk servers.
   ms.Kill()
   cs1.Kill()
   cs2.Kill()

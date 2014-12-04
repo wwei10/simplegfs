@@ -1,6 +1,7 @@
 package simplegfs
 
 import (
+  "errors"
   "fmt"
   "io"
   "time"
@@ -42,52 +43,100 @@ type ChunkServer struct {
   pendingExtensionsLock sync.RWMutex
 
   // Stores client's data in memory before commit to disk.
-  data map[dataId][]byte
+  data map[DataId][]byte
   dataMutex sync.RWMutex
-}
-
-type dataId struct {
-  clientId uint64
-  timestamp int64
 }
 
 // RPC handler declared here
 
+// ChunkServer.Write
+//
+// Handles client RPC write requests to the primary chunk. The primary first
+// applies requested write to its local state, serializes and records the order
+// of application in ChunkServer.writeRequests, then sends the write requests
+// to secondary replicas.
+//
+// params - WriteArgs: DataId, identifies the data stores in ChunkServer.data
+//                     ChunkHanlde, unique ID of the chunk being write to.
+//                     ChunkIndex, chunk's position in its file.
+//                     Offset, offset within the chunk.
+//                     Path, name of the file.
+//                     Chunklocations, replicas that store the chunk.
+//          WriteReply: None.
+// return - Appropriate error if any, nil otherwise.
 func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
-  fmt.Println(cs.me, "Write RPC.")
-  chunkhandle := args.ChunkHandle
-  off := int64(args.Offset)
-  bytes := args.Bytes
-  length := int64(len(bytes))
-  filename := fmt.Sprintf("%d", chunkhandle)
-  file, err := os.OpenFile(cs.path + "/" + filename, os.O_WRONLY | os.O_CREATE, 0777)
-  if err != nil {
-    log.Fatal(err)
-  }
-  defer file.Close()
-  file.WriteAt(bytes, off)
+  fmt.Println(cs.me, "ChunkServer: Write RPC.")
   cs.mutex.Lock()
   defer cs.mutex.Unlock()
-  _, ok := cs.chunks[chunkhandle]
-  // If we have never seen this chunk before,
-  // or chunk size has changed, we should
-  // report to Master immediately.
+
+  // Extract/define arguments.
+  dataId := args.DataId
+  chunkhandle := args.ChunkHandle
+  off := int64(args.Offset)
+  data, ok := cs.data[dataId]
   if !ok {
-    cs.chunks[chunkhandle] = ChunkInfo{
-      Path: args.Path,
-      ChunkHandle: chunkhandle,
-      ChunkIndex: args.ChunkIndex,
-    }
+    return errors.New("ChunkServer.Write: requested data is not in memory")
   }
-  chunkInfo := cs.chunks[chunkhandle]
-  if off + length > chunkInfo.Length {
-    chunkInfo.Length = off + length
-    reportChunk(cs, chunkInfo)
+  length := int64(len(data))
+  filename := fmt.Sprintf("%d", chunkhandle)
+
+  // Apply write request to local state.
+  if err := cs.applyWrite(filename, data, off); err != nil {
+    return err
+  }
+
+  // Update chunkserver metadata.
+  cs.updateChunkServerMeta(chunkhandle, args.ChunkIndex, args.Path, length, off)
+
+  // RPC each secondary chunkserver to apply the wirte.
+  for _, chunkLocation := range args.ChunkLocations {
+    if chunkLocation != cs.me {
+      if ok := call(chunkLocation, "ChunkServer.SerializedWrite", args, reply); !ok {
+        return errors.New("Secondary chunkesrver writes failed.")
+      }
+    }
   }
 
   // Since we are still writing to the chunk, we must continue request
   // lease extensions on the chunk.
   cs.addChunkExtensionRequest(chunkhandle)
+  return nil
+}
+
+// ChunkServer.SerializedWrite
+//
+// RPC handler for primary chunkservers to send write reqeusts to secondary
+// chunkservers.
+//
+// params - WriteArgs: DataId, identifies the data stores in ChunkServer.data
+//                     ChunkHanlde, unique ID of the chunk being write to.
+//                     ChunkIndex, chunk's position in its file.
+//                     Offset, offset within the chunk.
+//                     Path, name of the file.
+//          WriteReply: None.
+// return - Appropriate error if any, nil otherwise.
+func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error {
+  fmt.Println(cs.me, "ChunkServer: SerializedWrite RPC")
+  cs.mutex.Lock()
+  defer cs.mutex.Unlock()
+
+  // Fetch data from ChunkServer.data
+  data, ok := cs.data[args.DataId]
+  if !ok {
+    return errors.New("ChunkServer.SerializedWrite: requested data " +
+                      "is not in memory")
+  }
+
+  // Apply write reqeust to local state.
+  filename := fmt.Sprintf("%d", args.ChunkHandle)
+  if err := cs.applyWrite(filename, data, int64(args.Offset)); err != nil {
+    return err
+  }
+
+  // Update chunkserver metadata.
+  length := int64(len(data))
+  cs.updateChunkServerMeta(args.ChunkHandle, args.ChunkIndex, args.Path,
+                           length, int64(args.Offset))
   return nil
 }
 
@@ -135,14 +184,9 @@ func (cs *ChunkServer) Kill() {
 //                        Timestamp, client assigned timestamp, monotonically
 //                        increasing on each client instance.
 // return - nil.
-func (cs *ChunkServer) PushData(args PushDataArgs) error {
+func (cs *ChunkServer) PushData(args PushDataArgs, reply *PushDataReply) error {
   fmt.Println("ChunkServer: PushData RPC")
-
-  // Create dataId by clientid and timestampe.
-  dataId := dataId{
-    clientId: args.ClientId,
-    timestamp: args.Timestamp,
-  }
+  dataId := args.DataId
 
   // Acquire lock on ChunkServer.Data
   cs.dataMutex.Lock()
@@ -158,6 +202,8 @@ func (cs *ChunkServer) PushData(args PushDataArgs) error {
   return nil
 }
 
+
+
 func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
   cs := &ChunkServer{
     dead: false,
@@ -166,7 +212,7 @@ func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
     chunkServerMeta: "chunkServerMeta" + me,
     path: path,
     chunks: make(map[uint64]ChunkInfo),
-    data: make(map[dataId][]byte),
+    data: make(map[DataId][]byte),
   }
 
   rpcs := rpc.NewServer()
@@ -338,4 +384,63 @@ func (cs *ChunkServer) addChunkExtensionRequest(chunkhandle uint64) {
   cs.pendingExtensionsLock.Lock()
   defer cs.pendingExtensionsLock.Unlock()
   cs.pendingExtensions = append(cs.pendingExtensions, chunkhandle)
+}
+
+// ChunkServer.applyWrite
+//
+// Helper function for ChunkServer.Write(primary chunkserver) and
+// ChunkServer.SerializedWrite(secondary chunkserver) to apply writes from
+// memory to local state.
+// Note: ChunkServer.mutex is held by the caller.
+//
+// params - filename: Chunkhandle's string representation, on disk file name.
+//          data: In memory data to be written to disk.
+//          offset: Staring offset for writes.
+// return - Appropriate error if any, nil otherwise.
+func (cs *ChunkServer) applyWrite(filename string, data []byte, offset int64) error {
+  // Open file that stores the chunk.
+  file, err := os.OpenFile(cs.path + "/" + filename, os.O_WRONLY | os.O_CREATE,
+                           FilePermRWX)
+  if err != nil {
+    return err
+  }
+  defer file.Close()
+
+  // Write data to chunk, and serializes the order of concurrent write requests.
+  file.WriteAt(data, offset)
+  return nil
+}
+
+// ChunkServer.updateChunkServerMeta
+//
+// Helper function for ChunkServer.Write and ChunkServer.SerializedWrite to
+// update chunkserver metadata after a write request.
+// Note: ChunkServer.mutex is held by the caller.
+//
+// params - chunkhandle: Unique ID of the chunk.
+//          chunkindex: Chunk's position in file.
+//          path: Name of the file that contains the chunk.
+//          length: Length of the write request data.
+//          offset: Current offset before write is applied.
+// return - None.
+func (cs *ChunkServer) updateChunkServerMeta(chunkhandle, chunkindex uint64,
+                                             path string,
+                                             length, offset int64) {
+  // Update chunkserver metadata.
+  _, ok := cs.chunks[chunkhandle]
+  // If we have never seen this chunk before,
+  // or chunk size has changed, we should
+  // report to Master immediately.
+  if !ok {
+    cs.chunks[chunkhandle] = ChunkInfo{
+      Path: path,
+      ChunkHandle: chunkhandle,
+      ChunkIndex: chunkindex,
+    }
+  }
+  chunkInfo := cs.chunks[chunkhandle]
+  if offset + length > chunkInfo.Length {
+    chunkInfo.Length = offset + length
+    reportChunk(cs, chunkInfo)
+  }
 }
