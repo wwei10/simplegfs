@@ -142,12 +142,12 @@ func (c *Client) Stop() {
   c.leaseHolderCache.Stop()
 }
 
-func (c *Client) read(path string, chunkindex, start uint64, bytes []byte) (n int, err error) {
+func (c *Client) read(path string, chunkIndex, start uint64, bytes []byte) (n int, err error) {
   // Get chunkhandle and locations
   // TODO: Cache chunk handle and location
   length := uint64(len(bytes))
-  fmt.Println(c.clientId, "read", path, chunkindex, start, len(bytes))
-  reply, ok := c.findChunkLocations(path, chunkindex)
+  fmt.Println(c.clientId, "read", path, chunkIndex, start, len(bytes))
+  reply, ok := c.findChunkLocations(path, chunkIndex)
   if !ok {
     // TODO: Error handling. Define error code or something.
     return 0, nil
@@ -165,16 +165,18 @@ func (c *Client) read(path string, chunkindex, start uint64, bytes []byte) (n in
   return resp.Length, nil // TODO: Error handling
 }
 
-func (c *Client) write(path string, chunkindex, start, end uint64, bytes []byte) bool {
+func (c *Client) write(path string, chunkIndex, start, end uint64,
+                       bytes []byte) bool {
   // TODO: first try to get from cache.
   // Get chunkhandle and locations.
-  fmt.Println(c.clientId, "write", path, chunkindex, start, end, string(bytes)) // For auditing
-  reply, ok := c.findChunkLocations(path, chunkindex)
+  // For auditing
+  fmt.Println(c.clientId, "write", path, chunkIndex, start, end, string(bytes))
+  reply, ok := c.findChunkLocations(path, chunkIndex)
   var chunkHandle uint64
   var chunkLocations []string
   if !ok {
     // If chunk does not exist, add the chunk.
-    reply, ok := c.addChunk(path, chunkindex)
+    reply, ok := c.addChunk(path, chunkIndex)
     if !ok {
       return false
     }
@@ -210,7 +212,7 @@ func (c *Client) write(path string, chunkindex, start, end uint64, bytes []byte)
   writeArgs := WriteArgs{
     DataId: dataId,
     Path: path,
-    ChunkIndex: chunkindex,
+    ChunkIndex: chunkIndex,
     ChunkHandle: chunkHandle,
     Offset: start,
     ChunkLocations: chunkLocations,
@@ -232,9 +234,9 @@ func (c *Client) addChunk(path string, chunkIndex uint64) (AddChunkReply, bool) 
   return *reply, ok
 }
 
-// Find chunkhandle and chunk locations given filename and chunkindex
-func (c *Client) findChunkLocations(path string, chunkindex uint64) (FindLocationsReply, bool) {
-  key := fmt.Sprintf("%s,%d", path, chunkindex)
+// Find chunkhandle and chunk locations given filename and chunkIndex
+func (c *Client) findChunkLocations(path string, chunkIndex uint64) (FindLocationsReply, bool) {
+  key := fmt.Sprintf("%s,%d", path, chunkIndex)
   value, ok := c.locationCache.Get(key)
   if ok {
     reply := value.(*FindLocationsReply)
@@ -242,7 +244,7 @@ func (c *Client) findChunkLocations(path string, chunkindex uint64) (FindLocatio
   }
   args := FindLocationsArgs{
     Path: path,
-    ChunkIndex: chunkindex,
+    ChunkIndex: chunkIndex,
   }
   reply := new(FindLocationsReply)
   ok = call(c.masterAddr, "MasterServer.FindLocations", args, reply)

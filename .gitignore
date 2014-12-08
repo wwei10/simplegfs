@@ -1,2 +1,4 @@
 *.sw[o-z]
 serverMeta:*
+cloc-1.62.pl
+testFiles/
