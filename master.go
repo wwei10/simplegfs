@@ -306,44 +306,6 @@ func (ms *MasterServer) NewLease(args NewLeaseArgs,
   return nil
 }
 
-// Master.ExtendLease
-//
-// Handles RPC calls from client who wishes to extent their existing lease.
-// A lease can only be extended when the requesting client is currently holding
-// the lease, and the extended lease does not exceed the hard limit on that
-// lease.
-//
-// param  - args: ExtentLeaseArgs {ClientId, Paths}. Paths is an array of
-//                filenames the client is requesting extensions on.
-//          reply: ExtendLeaseReply {File2SoftLimit}. If the client is eligible
-//                 for an extension on a file, then there will be a mapping
-//                 from that file to a SoftLimit time, otherwise it will be
-//                 mapped to an expired lease time.
-// return - nil.
-func (ms *MasterServer) ExtendLease(args ExtendLeaseArgs,
-                                    reply *ExtendLeaseReply) error {
-  reply.File2SoftLimit = make(map[string]time.Time)
-  for _, path := range args.Paths {
-    val, ok := ms.file2ClientLease[path]
-
-    // If no file->clientLease mapping exists, or the current lease holder is
-    // not the requesting client, or the hard limit on the client lease has
-    // expired, or if granting extension would reseult in lease exceeding the
-    // hard limit, map file to an exipired lease time.
-    if !ok || val.clientId != args.ClientId ||
-       val.hardLimit.Before(time.Now()) ||
-       time.Now().Add(SoftLeaseTime).After(val.hardLimit) {
-      reply.File2SoftLimit[path] = time.Now()
-    }
-
-    // Client is eligible for a lease extension, update soft limit
-    val.softLimit = time.Now().Add(SoftLeaseTime)
-    ms.file2ClientLease[path] = val
-    reply.File2SoftLimit[path] = val.softLimit
-  }
-  return nil
-}
-
 // Tell the server to shut itself down
 // for testing
 func (ms *MasterServer) Kill() {
