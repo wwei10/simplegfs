@@ -76,3 +76,24 @@ func TestDelete(t *testing.T) {
   assertTrue(t, m.Delete("/b/c"), "Delete /b/c should return true")
   assertTrue(t, m.Delete("/b"), "Delete /b should return true")
 }
+
+func TestSaveAndLoad(t *testing.T) {
+  // m0 first stores some data in its namespace, then stores all
+  // its data into a file.
+  m0 := NewNamespaceManager()
+  m0.Mkdir("/a")
+  m0.Mkdir("/a/b")
+  m0.Mkdir("/a/c")
+  path := fmt.Sprintf("/var/tmp/namespace")
+  m0.Store(path)
+
+  // m1 will load namespace information from a file and try to
+  // perform some namespace operations. It should fail to create
+  // some directories because they already exist in the namespace.
+  m1 := NewNamespaceManager()
+  m1.Load(path)
+  assertFalse(t, m1.Mkdir("/a"), "m1 Mkdir /a should fail.")
+  assertFalse(t, m1.Mkdir("/a/b"), "m1 Mkdir /a/b should fail." )
+  assertFalse(t, m1.Mkdir("/a/c"), "m1 Mkdir /a/c should fail.")
+  assertTrue(t, m1.Mkdir("/a/b/c"), "m1 Mkdir /a/b/c should succeed.")
+}

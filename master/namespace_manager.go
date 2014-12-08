@@ -1,13 +1,18 @@
 package master
 
 import (
+  "bytes"
+  "encoding/gob"
+  "errors"
+  "io/ioutil"
+  "log"
   "strings"
   "sync"
 )
 
 type Info struct {
-  isdir bool
-  length int64
+  IsDir bool
+  Length int64
 }
 
 type NamespaceManager struct {
@@ -20,8 +25,8 @@ func NewNamespaceManager() *NamespaceManager {
     paths: make(map[string]*Info),
   }
   m.paths["/"] = &Info{
-    isdir: true,
-    length: 0,
+    IsDir: true,
+    Length: 0,
   }
   return m
 }
@@ -50,6 +55,66 @@ func (m *NamespaceManager) Delete(path string) bool {
   return m.remove(path)
 }
 
+// Get file length.
+func (m *NamespaceManager) GetFileLength(path string) (int64, error) {
+  m.mutex.RLock()
+  defer m.mutex.RUnlock()
+  info, ok := m.paths[path]
+  if !ok {
+    return 0, errors.New("File not found.")
+  }
+  return info.Length, nil
+}
+
+// Set file length.
+func (m *NamespaceManager) SetFileLength(path string, length int64) {
+  m.mutex.Lock()
+  defer m.mutex.Unlock()
+  info, ok := m.paths[path]
+  if !ok {
+    // Do nothing.
+  }
+  info.Length = length
+}
+
+// Load data from path to reconstruct namespace.
+func (m *NamespaceManager) Load(path string) {
+  m.mutex.Lock()
+  defer m.mutex.Unlock()
+  var paths map[string]*Info
+  // ReadFile will read in entire file.
+  b, err := ioutil.ReadFile(path)
+  if err != nil {
+    log.Fatal("NamespaceManager read error:", err)
+  }
+  data := bytes.NewBuffer(b)
+  dec := gob.NewDecoder(data)
+  err = dec.Decode(&paths)
+  if err != nil {
+    log.Fatal("NamespaceManager decode error:", err)
+  }
+  m.paths = paths
+}
+
+// Store entire namespace to path on disk.
+func (m *NamespaceManager) Store(path string) {
+  // Grab read lock before serialization.
+  m.mutex.RLock()
+  defer m.mutex.RUnlock()
+  var data bytes.Buffer
+  enc := gob.NewEncoder(&data)
+  err := enc.Encode(m.paths)
+  if err != nil {
+    log.Fatal("NamespaceManager encode error:", err)
+  }
+  // WriteFile will create a new file with specified
+  // permission if file doesn't exist.
+  err = ioutil.WriteFile(path, data.Bytes(), FilePermRW)
+  if err != nil {
+    log.Fatal("NamespaceManager write error:", err)
+  }
+}
+
 // Precondition: m.mutex.Lock() is called.
 func (m *NamespaceManager) add(path string, isdir bool) bool {
   parent := getParent(path)
@@ -58,8 +123,8 @@ func (m *NamespaceManager) add(path string, isdir bool) bool {
     return false
   }
   m.paths[path] = &Info{
-    isdir: isdir,
-    length: 0,
+    IsDir: isdir,
+    Length: 0,
   }
   return true
 }
@@ -112,7 +177,7 @@ func (m *NamespaceManager) isDir(path string) bool {
   if !ok {
     return false
   }
-  return info.isdir
+  return info.IsDir
 }
 
 // Returns parent path.
