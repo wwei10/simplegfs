@@ -13,14 +13,10 @@ const HeartbeatInterval = 100 * time.Millisecond
 const CacheTimeout = time.Minute
 const CacheGCInterval = time.Minute
 
-// Client lease related const
-const ClockDrift = 5 * time.Millisecond
-const SoftLeaseTime = 1 * time.Second
-const HardLeaseTime = 30 * time.Second
-const ExtensionRequestInterval = 500 * time.Millisecond
-
 // ChunkServer lease related const
 const LeaseTimeout = 60 * time.Second
+const SoftLeaseTime = 1 * time.Second
+const HardLeaseTime = 30 * time.Second
 
 // Useful data structures
 type ChunkInfo struct {
