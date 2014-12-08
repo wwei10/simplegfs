@@ -86,7 +86,7 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   }
 
   // Update chunkserver metadata.
-  cs.updateChunkServerMeta(chunkhandle, args.ChunkIndex, args.Path, length, off)
+  cs.reportChunkInfo(chunkhandle, args.ChunkIndex, args.Path, length, off)
 
   // RPC each secondary chunkserver to apply the wirte.
   for _, chunkLocation := range args.ChunkLocations {
@@ -135,7 +135,7 @@ func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error 
 
   // Update chunkserver metadata.
   length := int64(len(data))
-  cs.updateChunkServerMeta(args.ChunkHandle, args.ChunkIndex, args.Path,
+  cs.reportChunkInfo(args.ChunkHandle, args.ChunkIndex, args.Path,
                            length, int64(args.Offset))
   return nil
 }
@@ -411,7 +411,7 @@ func (cs *ChunkServer) applyWrite(filename string, data []byte, offset int64) er
   return nil
 }
 
-// ChunkServer.updateChunkServerMeta
+// ChunkServer.reportChunkInfo
 //
 // Helper function for ChunkServer.Write and ChunkServer.SerializedWrite to
 // update chunkserver metadata after a write request.
@@ -423,9 +423,9 @@ func (cs *ChunkServer) applyWrite(filename string, data []byte, offset int64) er
 //          length: Length of the write request data.
 //          offset: Current offset before write is applied.
 // return - None.
-func (cs *ChunkServer) updateChunkServerMeta(chunkhandle, chunkindex uint64,
-                                             path string,
-                                             length, offset int64) {
+func (cs *ChunkServer) reportChunkInfo(chunkhandle, chunkindex uint64,
+                                       path string,
+                                       length, offset int64) {
   // Update chunkserver metadata.
   _, ok := cs.chunks[chunkhandle]
   // If we have never seen this chunk before,
