@@ -6,7 +6,6 @@ import (
   sgfsErr "github.com/wweiw/simplegfs/error"
   "log"
   "time"
-  "sync"
 )
 
 type Client struct {
@@ -14,18 +13,10 @@ type Client struct {
   clientId uint64
   locationCache *cache.Cache
   leaseHolderCache *cache.Cache
-  file2Lease map[string]lease
 
   // Stores file name of the files that the client is trying to request lease
   // extension on.
   pendingExtension []string
-  // Lease lock for pendingextension and file2Lease
-  leaseMutex sync.RWMutex
-}
-
-type lease struct {
-  softLimit time.Time
-  hardLimit time.Time
 }
 
 func NewClient(masterAddr string) *Client {
@@ -33,7 +24,6 @@ func NewClient(masterAddr string) *Client {
     masterAddr: masterAddr,
     locationCache: cache.New(CacheTimeout, CacheGCInterval),
     leaseHolderCache: cache.New(CacheTimeout, CacheGCInterval),
-    file2Lease: make(map[string]lease),
   }
   reply := &NewClientIdReply{}
   call(masterAddr, "MasterServer.NewClientId", struct{}{}, reply)

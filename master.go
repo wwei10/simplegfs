@@ -31,9 +31,6 @@ type MasterServer struct {
   file2chunkhandle map[string](map[uint64]uint64)
   files map[string]*FileInfo // Stores file to information mapping
 
-  // Filename -> clientLease
-  file2ClientLease map[string]clientLease
-
   // Namespace manager
   namespaceManager *master.NamespaceManager
 
@@ -284,7 +281,6 @@ func StartMasterServer(me string) *MasterServer {
     ckhandle2locLease: make(map[uint64]locationsAndLease),
     files: make(map[string]*FileInfo),
     namespaceManager: master.NewNamespaceManager(),
-    file2ClientLease: make(map[string]clientLease),
   }
 
   loadServerMeta(ms)
