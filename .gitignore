@@ -2,3 +2,6 @@
 serverMeta:*
 cloc-1.62.pl
 testFiles/
+
+# ctags
+tags
