@@ -203,8 +203,6 @@ func (cs *ChunkServer) PushData(args PushDataArgs, reply *PushDataReply) error {
   return nil
 }
 
-
-
 func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
   cs := &ChunkServer{
     dead: false,

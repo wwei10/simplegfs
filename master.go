@@ -207,7 +207,7 @@ func (ms *MasterServer) AddChunk(args AddChunkArgs,
   }
   _, ok = chunks[chunkIndex]
   if ok {
-    return errors.New("chunk already exists")
+    return errors.New(ER_CHUNK_EXISTS)
   }
   handle := ms.chunkhandle
   ms.chunkhandle++

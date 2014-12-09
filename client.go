@@ -145,15 +145,15 @@ func (c *Client) read(path string, chunkIndex, start uint64,
   // Get chunkhandle and locations
   length := uint64(len(bytes))
   fmt.Println(c.clientId, "read", path, chunkIndex, start, len(bytes))
-  reply, err := c.findChunkLocations(path, chunkIndex)
+  chunkHandle, chunkLocations, err := c.findChunkLocations(path, chunkIndex)
   if err != nil {
     // TODO: Error handling. Define error code or something.
     return 0, nil
   }
-  cs := reply.ChunkLocations[0] // TODO: Use random location for load balance
+  cs := chunkLocations[0] // TODO: Use random location for load balance
   // TODO: Fault tolerance (e.g. chunk server down)
   args := ReadArgs{
-    ChunkHandle: reply.ChunkHandle,
+    ChunkHandle: chunkHandle,
     Offset: int64(start),
     Length: length,
   }
@@ -168,20 +168,21 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
   // Get chunkhandle and locations.
   // For auditing
   fmt.Println(c.clientId, "write", path, chunkIndex, start, end, string(bytes))
-  reply, err := c.findChunkLocations(path, chunkIndex)
-  var chunkHandle uint64
-  var chunkLocations []string
+
+  chunkHandle, chunkLocations, err := c.findChunkLocations(path, chunkIndex)
+  // If cannot find chunk, add the chunk.
   if err != nil {
-    // If chunk does not exist, add the chunk.
-    reply, err := c.addChunk(path, chunkIndex)
-    if err != nil {
-      return false
-    }
-    chunkHandle = reply.ChunkHandle
-    chunkLocations = reply.ChunkLocations
-  } else {
-    chunkHandle = reply.ChunkHandle
-    chunkLocations = reply.ChunkLocations
+    chunkHandle, chunkLocations, err = c.addChunk(path, chunkIndex)
+  }
+  // Other client might have added the chunk simultaneously,
+  // must check error code. If it already exists, find the location again.
+  if err != nil && err.Error() == ER_CHUNK_EXISTS {
+    chunkHandle, chunkLocations, err = c.findChunkLocations(path, chunkIndex)
+  }
+  // Either some other err occurred during add Chunk, or the second
+  // findChunkLocation fails.
+  if err != nil {
+    return false
   }
 
   // Get the primary location.
@@ -227,7 +228,7 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
   return true
 }
 
-func (c *Client) addChunk(path string, chunkIndex uint64) (AddChunkReply,
+func (c *Client) addChunk(path string, chunkIndex uint64) (uint64, []string,
                                                            error) {
   args := AddChunkArgs{
     Path: path,
@@ -235,16 +236,16 @@ func (c *Client) addChunk(path string, chunkIndex uint64) (AddChunkReply,
   }
   reply := new(AddChunkReply)
   err := call(c.masterAddr, "MasterServer.AddChunk", args, reply)
-  return *reply, err
+  return reply.ChunkHandle, reply.ChunkLocations, err
 }
 
 // Find chunkhandle and chunk locations given filename and chunkIndex
-func (c *Client) findChunkLocations(path string, chunkIndex uint64) (FindLocationsReply, error) {
+func (c *Client) findChunkLocations(path string, chunkIndex uint64) (uint64, []string, error) {
   key := fmt.Sprintf("%s,%d", path, chunkIndex)
   value, ok := c.locationCache.Get(key)
   if ok {
     reply := value.(*FindLocationsReply)
-    return *reply, nil
+    return reply.ChunkHandle, reply.ChunkLocations, nil
   }
   args := FindLocationsArgs{
     Path: path,
@@ -256,7 +257,7 @@ func (c *Client) findChunkLocations(path string, chunkIndex uint64) (FindLocatio
     // Set cache entry to the answers we get.
     c.locationCache.Set(key, reply)
   }
-  return *reply, err
+  return reply.ChunkHandle, reply.ChunkLocations, err
 }
 
 // Client.findLeaseHolder
