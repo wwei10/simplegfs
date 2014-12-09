@@ -5,6 +5,7 @@ import (
   "errors"
   "fmt"
   "github.com/wweiw/simplegfs/master"
+  sgfsErr "github.com/wweiw/simplegfs/error"
   "log"
   "net"
   "net/rpc"
@@ -207,7 +208,7 @@ func (ms *MasterServer) AddChunk(args AddChunkArgs,
   }
   _, ok = chunks[chunkIndex]
   if ok {
-    return errors.New(ER_CHUNK_EXISTS)
+    return sgfsErr.ErrChunkExist
   }
   handle := ms.chunkhandle
   ms.chunkhandle++

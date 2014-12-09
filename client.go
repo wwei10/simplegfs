@@ -3,6 +3,7 @@ package simplegfs
 import (
   "fmt"
   "github.com/wweiw/simplegfs/pkg/cache"
+  sgfsErr "github.com/wweiw/simplegfs/error"
   "log"
   "time"
   "sync"
@@ -176,7 +177,7 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
   }
   // Other client might have added the chunk simultaneously,
   // must check error code. If it already exists, find the location again.
-  if err != nil && err.Error() == ER_CHUNK_EXISTS {
+  if err != nil && err == sgfsErr.ErrChunkExist {
     chunkHandle, chunkLocations, err = c.findChunkLocations(path, chunkIndex)
   }
   // Either some other err occurred during add Chunk, or the second
