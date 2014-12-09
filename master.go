@@ -2,10 +2,8 @@ package simplegfs
 
 import (
   "bufio" // For reading lines from a file
-  "errors"
   "fmt"
   "github.com/wweiw/simplegfs/master"
-  sgfsErr "github.com/wweiw/simplegfs/error"
   "log"
   "net"
   "net/rpc"
@@ -28,18 +26,12 @@ type MasterServer struct {
   serverMeta string
 
   chunkservers map[string]time.Time
-  file2chunkhandle map[string](map[uint64]uint64)
-  files map[string]*FileInfo // Stores file to information mapping
-
-  // Filename -> clientLease
-  file2ClientLease map[string]clientLease
 
   // Namespace manager
   namespaceManager *master.NamespaceManager
 
-  // Chunk server lease management related fields.
-  // Map chunkhandle to its replica locations, primary location, and lease time.
-  ckhandle2locLease map[uint64]locationsAndLease
+  // Chunk manager
+  chunkManager *master.ChunkManager
 }
 
 // Client lease management
@@ -91,8 +83,6 @@ func (ms *MasterServer) Create(args string,
     *reply = false
     return err
   }
-  ms.file2chunkhandle[args] = make(map[uint64]uint64)
-  ms.files[args] = &FileInfo{}
   *reply = true
   return nil
 }
@@ -143,25 +133,16 @@ func (ms *MasterServer) Delete(args string,
 // return - Appropriate error if any, nil otherwise.
 func (ms *MasterServer) FindLocations(args FindLocationsArgs,
                                       reply *FindLocationsReply) error {
-  ms.mutex.Lock()
-  defer ms.mutex.Unlock()
   fmt.Println("Find Locations RPC")
   path := args.Path
-  chunkindex := args.ChunkIndex
-  val, ok := ms.file2chunkhandle[path]
-  if !ok {
-    // Filename not found.
-    return errors.New("File not found.")
+  chunkIndex := args.ChunkIndex
+  info, err := ms.chunkManager.FindLocations(path, chunkIndex)
+  if err != nil {
+    return err
   }
-  handle, ok2 := val[chunkindex]
-  if !ok2 {
-    // Chunk not found.
-    return errors.New("Chunk locations not found.")
-  }
-
   // Set reply message.
-  reply.ChunkHandle = handle
-  reply.ChunkLocations = ms.ckhandle2locLease[handle].replicas
+  reply.ChunkHandle = info.Handle
+  reply.ChunkLocations = info.Locations
   return nil
 }
 
@@ -178,50 +159,28 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
 // return - nil.
 func (ms *MasterServer) FindLeaseHolder(args FindLeaseHolderArgs,
                                         reply *FindLeaseHolderReply) error {
-  ms.mutex.Lock()
-  defer ms.mutex.Unlock()
   fmt.Println("MasterServer: FindLeaseHolder RPC")
-
-  // If no current lease holer, select primary and grant lease to the primary.
-  ms.grantLease(args.ChunkHandle)
-
-  // Set reply message.
-  reply.Primary = ms.ckhandle2locLease[args.ChunkHandle].primary
-  reply.LeaseEnds = ms.ckhandle2locLease[args.ChunkHandle].leaseEnds
-
+  lease, err := ms.chunkManager.FindLeaseHolder(args.ChunkHandle)
+  if err != nil {
+    return err
+  }
+  reply.Primary = lease.Primary
+  reply.LeaseEnds = lease.Expiration
   return nil
 }
 
 // Client calls AddChunk to get a new chunk.
 func (ms *MasterServer) AddChunk(args AddChunkArgs,
                                  reply *AddChunkReply) error {
-  ms.mutex.Lock()
-  defer ms.mutex.Unlock()
   fmt.Println(ms.me + " Add chunk RPC")
   path := args.Path
   chunkIndex := args.ChunkIndex
-  chunks, ok := ms.file2chunkhandle[path]
-  if !ok {
-    return errors.New("file not found.")
+  info, err := ms.chunkManager.AddChunk(path, chunkIndex)
+  if err != nil {
+    return err
   }
-  _, ok = chunks[chunkIndex]
-  if ok {
-    return sgfsErr.ErrChunkExist
-  }
-  handle := ms.chunkhandle
-  ms.chunkhandle++
-  chunks[chunkIndex] = handle
-  reply.ChunkHandle = handle
-  chunkLocations := getRandomLocations(ms.chunkservers, 3)
-  ms.ckhandle2locLease[handle] = locationsAndLease{
-    // Primary is unassigned untill client RPCs FindLocation.
-    primary: "",
-    replicas: chunkLocations,
-    // Lease is invalid when chunk initially added.
-    leaseEnds: time.Now(),
-  }
-  reply.ChunkLocations = chunkLocations
-  storeServerMeta(ms)
+  reply.ChunkHandle = info.Handle
+  reply.ChunkLocations = info.Locations
   return nil
 }
 
@@ -232,37 +191,34 @@ func (ms *MasterServer) ReportChunk(args ReportChunkArgs,
                                     reply *ReportChunkReply) error {
   fmt.Println("MasterServer: Report Chunk.")
   length := args.Length
-  chunkIndex := args.ChunkIndex
-  // chunkHandle := args.ChunkHandle
-  // address := args.ServerAddress
-  path := args.Path
-  // Update file information
-  ms.mutex.Lock()
-  defer ms.mutex.Unlock()
-  info, ok := ms.files[path]
-  if !ok {
-    return errors.New("file not found.")
+  handle := args.ChunkHandle
+  server := args.ServerAddress
+  pathIndex, err := ms.chunkManager.GetPathIndexFromHandle(handle)
+  if err != nil {
+    return err
   }
-  calculated := int64(ChunkSize * chunkIndex) + length
-  fmt.Println("Result", calculated, "index", chunkIndex, "length", length)
-  if calculated > info.Length {
-    info.Length = calculated
-    fmt.Println("#### New length:", ms.files[path].Length)
+  ms.chunkManager.SetChunkLocation(handle, server)
+  // Update file information
+  fileLength, err := ms.namespaceManager.GetFileLength(pathIndex.Path)
+  if err != nil {
+    return err
+  }
+  calculated := int64(ChunkSize * pathIndex.Index) + length
+  fmt.Println("Result", calculated, "index", pathIndex.Index, "length", length)
+  if calculated > fileLength {
+    ms.namespaceManager.SetFileLength(pathIndex.Path, calculated)
+    fmt.Println("#### New length:", calculated)
   }
   return nil
 }
 
-// Get information about a file.
-func (ms *MasterServer) GetFileInfo(args GetFileInfoArgs,
-                                    reply *GetFileInfoReply) error {
-  fmt.Println("MasterServer: GetFileInfo")
-  ms.mutex.RLock()
-  defer ms.mutex.RUnlock()
-  info, ok := ms.files[args.Path]
-  if !ok {
-    return errors.New("file not found.")
+func (ms *MasterServer) GetFileLength(args string, reply *int64) error {
+  fmt.Println("MasterServer: GetFileLength")
+  length, err := ms.namespaceManager.GetFileLength(args)
+  if err != nil {
+    return err
   }
-  reply.Info = *info
+  *reply = length
   return nil
 }
 
@@ -273,18 +229,15 @@ func (ms *MasterServer) Kill() {
   ms.l.Close()
 }
 
-func StartMasterServer(me string) *MasterServer {
+func StartMasterServer(me string, servers []string) *MasterServer {
   ms := &MasterServer{
     me: me,
     serverMeta: "serverMeta" + me,
     clientId: 1,
     chunkhandle: 1,
     chunkservers: make(map[string]time.Time),
-    file2chunkhandle: make(map[string](map[uint64]uint64)),
-    ckhandle2locLease: make(map[uint64]locationsAndLease),
-    files: make(map[string]*FileInfo),
     namespaceManager: master.NewNamespaceManager(),
-    file2ClientLease: make(map[string]clientLease),
+    chunkManager: master.NewChunkManager(servers),
   }
 
   loadServerMeta(ms)
@@ -327,21 +280,6 @@ func StartMasterServer(me string) *MasterServer {
 
 // Helper functions
 
-// Pre-condition: ms.mutex.Lock() is called.
-func getRandomLocations(chunkservers map[string]time.Time, num uint) []string {
-  ret := make([]string, num)
-  // TODO: Better random algorithm
-  i := uint(0)
-  for cs := range chunkservers {
-    if i == num {
-      break
-    }
-    ret[i] = cs
-    i++
-  }
-  return ret
-}
-
 // tick() is called once per PingInterval to
 // handle background tasks
 func (ms *MasterServer) tick() {
@@ -362,23 +300,6 @@ func storeServerMeta(ms *MasterServer) {
 
   // Write out clientId
   storeClientId(ms, f)
-  // Write out chunkhandle
-  storeChunkhandle(ms, f)
-}
-
-// Store MasterServer.chunkhandle on to MasterServer.serverMeta
-//
-// param  - ms: a pointer to a MasterServer instance
-//           f: a pointer to os.File serverMeta
-// return - none
-func storeChunkhandle(ms *MasterServer, f *os.File) {
-  n, err := f.WriteString("chunkhandle " +
-                          strconv.FormatUint(ms.chunkhandle, 10) + "\n")
-  if err != nil {
-    fmt.Println(err)
-  } else {
-    fmt.Printf("Wrote %d bytes to serverMeta\n", n)
-  }
 }
 
 // Store MasterServer.clientId on to MasterServer.serverMeta
@@ -428,69 +349,10 @@ func parseServerMeta(ms *MasterServer, f *os.File) {
       if err != nil {
         log.Fatal("Failed to load clientId into ms.clientId")
       }
-    case "chunkhandle":
-      var err error
-      ms.chunkhandle, err = strconv.ParseUint(fields[1], 0, 64)
-      if err != nil {
-        log.Fatal("Failed to load chunkhandle into ms.chunkhanle")
-      }
     default:
       log.Fatal("Unknown serverMeta key.")
     }
   }
-}
-
-// MasterServer.grantLease
-//
-// Called by MasterServer.FindLeaseHolder. First checks if there is a valid
-// lease on the chunkhandle, if so return. If not, picks one replica as
-// primary, then grant lease to the primary.
-//
-// Note: ms.mutex is already held by MasterServer.FindLeaseHolder.
-//
-// params - chunkhandle: Unique ID of the chunk being requested lease on.
-// return - None.
-func (ms *MasterServer) grantLease(chunkhandle uint64) {
-  // No more work to do if there is a valid lease already.
-  if ms.checkLease(chunkhandle) {
-    return
-  }
-
-  // No valid lease, must grant a new one.
-  locLease := ms.ckhandle2locLease[chunkhandle]
-  locLease.primary = locLease.replicas[0]
-  locLease.leaseEnds = time.Now().Add(LeaseTimeout)
-  ms.ckhandle2locLease[chunkhandle] = locLease
-}
-
-// MasterServer.checkLease
-//
-// Called by MasterServer.grantLease. Checks if the given chunk already has
-// an valid unexpired lease.
-//
-// Note: ms.mutex is already held by MasterServer.FindLeaseHolder.
-//
-// params - chunkhandle: Unique ID of the chunk being requested lease on.
-// return - True if there is a valid lease, false otherwise.
-func (ms *MasterServer) checkLease(chunkhandle uint64) bool {
-  lease, ok := ms.ckhandle2locLease[chunkhandle]
-  if !ok {
-    log.Fatal("Chunkhandle to locationsAndLease mapping not found.")
-  }
-
-  _, ok = ms.chunkservers[lease.primary]
-  // If primary is not a valid chunkserver that connected with the master,
-  // return false.
-  if !ok {
-    return false
-  }
-
-  // If lease on the primary has already expired, return false.
-  if lease.leaseEnds.Before(time.Now()) {
-    return false
-  }
-
-  return true
 }
 
 // MasterServer.csExtendLease
@@ -506,16 +368,5 @@ func (ms *MasterServer) checkLease(chunkhandle uint64) bool {
 //                  extensions on.
 // return - None.
 func (ms *MasterServer) csExtendLease(cs string, chunks []uint64) {
-  ms.mutex.Lock()
-  defer ms.mutex.Unlock()
-  // For each of the lease extension requests
-  for _, chunkhandle := range chunks {
-    locLease, ok := ms.ckhandle2locLease[chunkhandle]
-    // If the entry exists and the current lease holder is the requesting
-    // chunkserver, extend the lease.
-    if ok && locLease.primary == cs {
-      locLease.leaseEnds = time.Now().Add(LeaseTimeout)
-      ms.ckhandle2locLease[chunkhandle] = locLease
-    }
-  }
+  ms.chunkManager.ExtendLease(cs, chunks)
 }

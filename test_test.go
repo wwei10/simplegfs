@@ -50,7 +50,7 @@ func testEnd() {
 
 func TestNewClientId(t *testing.T) {
   testStart()
-  ms := StartMasterServer(":4444")
+  ms := StartMasterServer(":4444", []string{})
   time.Sleep(HeartbeatInterval)
 
   // Read master server's meta data to determine what the next clientId
@@ -110,7 +110,7 @@ func testDelete(c *Client, path string) bool {
 
 func TestNamespaceManagement(t *testing.T) {
   testStart()
-  ms := StartMasterServer(":4444")
+  ms := StartMasterServer(":4444", []string{})
   time.Sleep(HeartbeatInterval)
   c := NewClient(":4444")
   defer c.Stop()
@@ -141,7 +141,7 @@ func TestNamespaceManagement(t *testing.T) {
 
 func TestReadWrite(t *testing.T) {
   testStart()
-  ms := StartMasterServer(":4444")
+  ms := StartMasterServer(":4444", []string{":5555", ":6666", ":7777"})
   time.Sleep(HeartbeatInterval)
 
   os.Mkdir("/var/tmp/ck1", 0777)
@@ -236,7 +236,7 @@ func TestChunkServerLease(t *testing.T) {
   readBuf2 := make([]byte, 7000)
 
   // Fire up master server.
-  ms := StartMasterServer(msAddr)
+  ms := StartMasterServer(msAddr, []string{ck1Addr, ck2Addr, ck3Addr})
   time.Sleep(2 * HeartbeatInterval)
 
   // Make space on local for chunkserver to store data.
