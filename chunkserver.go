@@ -91,8 +91,9 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   // RPC each secondary chunkserver to apply the wirte.
   for _, chunkLocation := range args.ChunkLocations {
     if chunkLocation != cs.me {
-      if ok := call(chunkLocation, "ChunkServer.SerializedWrite", args, reply); !ok {
-        return errors.New("Secondary chunkesrver writes failed.")
+      if err := call(chunkLocation, "ChunkServer.SerializedWrite", args,
+                     reply); err != nil {
+        return err
       }
     }
   }
@@ -201,8 +202,6 @@ func (cs *ChunkServer) PushData(args PushDataArgs, reply *PushDataReply) error {
   cs.data[dataId] = args.Data
   return nil
 }
-
-
 
 func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
   cs := &ChunkServer{

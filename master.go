@@ -5,6 +5,7 @@ import (
   "errors"
   "fmt"
   "github.com/wweiw/simplegfs/master"
+  sgfsErr "github.com/wweiw/simplegfs/error"
   "log"
   "net"
   "net/rpc"
@@ -85,11 +86,10 @@ func (ms *MasterServer) NewClientId(args *struct{},
 func (ms *MasterServer) Create(args string,
                                reply *bool) error {
   // TODO: error handling
-  ok := ms.namespaceManager.Create(args)
+  ok, err := ms.namespaceManager.Create(args)
   if !ok {
-    fmt.Println("Create file failed.")
     *reply = false
-    return nil
+    return err
   }
   ms.file2chunkhandle[args] = make(map[uint64]uint64)
   ms.files[args] = &FileInfo{}
@@ -100,11 +100,10 @@ func (ms *MasterServer) Create(args string,
 // Client calls Mkdir to make a new directory.
 func (ms *MasterServer) Mkdir(args string,
                               reply *bool) error {
-  ok := ms.namespaceManager.Mkdir(args)
+  ok, err := ms.namespaceManager.Mkdir(args)
   if !ok {
-    fmt.Println("Mkdir failed.")
     *reply = false
-    return nil
+    return err
   }
   *reply = true
   return nil
@@ -115,9 +114,9 @@ func (ms *MasterServer) Mkdir(args string,
 // or it contains no files and directories.
 func (ms *MasterServer) List(args string,
                              reply *ListReply) error {
-  paths := ms.namespaceManager.List(args)
+  paths, err := ms.namespaceManager.List(args)
   reply.Paths = paths
-  return nil
+  return err
 }
 
 // Delete a file or directory.
@@ -125,9 +124,9 @@ func (ms *MasterServer) List(args string,
 // it contains no children.
 func (ms *MasterServer) Delete(args string,
                                reply *bool) error {
-  ok := ms.namespaceManager.Delete(args)
+  ok, err := ms.namespaceManager.Delete(args)
   *reply = ok
-  return nil
+  return err
 }
 
 // MasterServer.FindLocations
@@ -207,7 +206,7 @@ func (ms *MasterServer) AddChunk(args AddChunkArgs,
   }
   _, ok = chunks[chunkIndex]
   if ok {
-    return errors.New("chunk already exists")
+    return sgfsErr.ErrChunkExist
   }
   handle := ms.chunkhandle
   ms.chunkhandle++

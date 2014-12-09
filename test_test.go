@@ -84,31 +84,56 @@ func TestNewClientId(t *testing.T) {
   testEnd()
 }
 
+func testCreate(c *Client, path string) bool {
+  ok, err := c.Create(path)
+  if err != nil {
+    fmt.Println(err)
+  }
+  return ok
+}
+
+func testMkdir(c *Client, path string) bool {
+  ok, err := c.Mkdir(path)
+  if err != nil {
+    fmt.Println(err)
+  }
+  return ok
+}
+
+func testDelete(c *Client, path string) bool {
+  ok, err := c.Delete(path)
+  if err != nil {
+    fmt.Println(err)
+  }
+  return ok
+}
+
 func TestNamespaceManagement(t *testing.T) {
   testStart()
   ms := StartMasterServer(":4444")
   time.Sleep(HeartbeatInterval)
   c := NewClient(":4444")
   defer c.Stop()
-  testutil.AssertTrue(t, c.Create("/a"), "create /a returns true.")
-  testutil.AssertFalse(t, c.Create("/a"), "create /a returns false.")
-  testutil.AssertFalse(t, c.Mkdir("/var/tmp"), "mkdir /var/tmp returns false.")
-  testutil.AssertTrue(t, c.Mkdir("/var"), "mkdir /var returns true.")
-  testutil.AssertTrue(t, c.Mkdir("/var/tmp"), "mkdir /var/tmp returns true.")
-  testutil.AssertTrue(t, c.Create("/var/tmp/a"), "create /var/tmp/a returns true.")
-  testutil.AssertTrue(t, c.Create("/var/tmp/b"), "create /var/tmp/b returns true.")
-  testutil.AssertTrue(t, c.Create("/var/tmp/c"), "create /var/tmp/c returns true.")
-  testutil.AssertTrue(t, c.Create("/var/tmp/d"), "create /var/tmp/d returns true.")
+  testutil.AssertTrue(t, testCreate(c, "/a"), "create /a returns true.")
+  testutil.AssertFalse(t, testCreate(c, "/a"), "create /a returns false.")
+  testutil.AssertFalse(t, testMkdir(c, "/var/tmp"), "mkdir /var/tmp returns false.")
+  testutil.AssertTrue(t, testMkdir(c, "/var"), "mkdir /var returns true.")
+  testutil.AssertTrue(t, testMkdir(c, "/var/tmp"), "mkdir /var/tmp returns true.")
+  testutil.AssertTrue(t, testCreate(c, "/var/tmp/a"), "create /var/tmp/a returns true.")
+  testutil.AssertTrue(t, testCreate(c, "/var/tmp/b"), "create /var/tmp/b returns true.")
+  testutil.AssertTrue(t, testCreate(c, "/var/tmp/c"), "create /var/tmp/c returns true.")
+  testutil.AssertTrue(t, testCreate(c, "/var/tmp/d"), "create /var/tmp/d returns true.")
   fmt.Println(c.List("/var/tmp"))
-  testutil.AssertFalse(t, c.Delete("/var"), "delete /var returns false.")
-  testutil.AssertFalse(t, c.Delete("/var/tmp"), "delete /var/tmp returns false.")
-  testutil.AssertTrue(t, c.Delete("/var/tmp/a"), "delete /var/tmp/a returns true.")
-  testutil.AssertTrue(t, c.Delete("/var/tmp/b"), "delete /var/tmp/b returns true.")
-  testutil.AssertTrue(t, c.Delete("/var/tmp/c"), "delete /var/tmp/c returns true.")
-  testutil.AssertTrue(t, c.Delete("/var/tmp/d"), "delete /var/tmp/d returns true.")
+  testutil.AssertFalse(t, testDelete(c, "/var"), "delete /var returns false.")
+  testutil.AssertFalse(t, testDelete(c, "/var/tmp"), "delete /var/tmp returns false.")
+  testutil.AssertTrue(t, testDelete(c, "/var/tmp/a"), "delete /var/tmp/a returns true.")
+  testutil.AssertTrue(t, testDelete(c, "/var/tmp/b"), "delete /var/tmp/b returns true.")
+  testutil.AssertTrue(t, testDelete(c, "/var/tmp/c"), "delete /var/tmp/c returns true.")
+  testutil.AssertTrue(t, testDelete(c, "/var/tmp/d"), "delete /var/tmp/d returns true.")
   fmt.Println(c.List("/var/tmp"))
-  testutil.AssertTrue(t, c.Delete("/var/tmp"), "delete /var/tmp returns true.")
-  testutil.AssertTrue(t, c.Delete("/var"), "delete /var returns true.")
+  testutil.AssertTrue(t, testDelete(c, "/var/tmp"), "delete /var/tmp returns true.")
+  testutil.AssertTrue(t, testDelete(c, "/var"), "delete /var returns true.")
+  fmt.Println(c.List("/var"))
   time.Sleep(HeartbeatInterval)
   ms.Kill()
   testEnd()
@@ -129,7 +154,7 @@ func TestReadWrite(t *testing.T) {
 
   c := NewClient(":4444")
   defer c.Stop()
-  if c.Create("/a") != true {
+  if ok, err := c.Create("/a"); err != nil || ok != true {
     t.Error("c should create '/a' successfully.")
   }
   if ok := c.Write("/a", 0, []byte("hello, world. nice to meet you.")); !ok {
@@ -148,7 +173,7 @@ func TestReadWrite(t *testing.T) {
     t.Error("c actually reads", n, "chars:", string(data))
   }
 
-  if c.Create("/b") != true {
+  if ok, err := c.Create("/b"); err != nil || ok != true {
     t.Error("c should create '/b' successfully.")
   }
   test := "how are you. fine thank you and you? I'm fine too."
@@ -233,7 +258,7 @@ func TestChunkServerLease(t *testing.T) {
   // ----- Test sequential read and write -----
 
   // Create a test file.
-  if c1.Create(testFile1) != true {
+  if ok, err := c1.Create(testFile1); err != nil || ok != true {
     t.Error("Failed to create testfile")
   }
 
@@ -274,7 +299,7 @@ func TestChunkServerLease(t *testing.T) {
   }
 
   // Create a second test file.
-  if (c2.Create(testFile2) != true) {
+  if ok, err := c2.Create(testFile2); err != nil || ok != true {
     t.Error("Failed to create testfile2")
   }
 

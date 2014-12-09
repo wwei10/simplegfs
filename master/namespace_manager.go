@@ -4,6 +4,7 @@ import (
   "bytes"
   "encoding/gob"
   "errors"
+  sgfsErr "github.com/wweiw/simplegfs/error"
   "io/ioutil"
   "log"
   "strings"
@@ -31,25 +32,25 @@ func NewNamespaceManager() *NamespaceManager {
   return m
 }
 
-func (m *NamespaceManager) Create(path string) bool {
+func (m *NamespaceManager) Create(path string) (bool, error) {
   m.mutex.Lock()
   defer m.mutex.Unlock()
   return m.add(path, false)
 }
 
-func (m *NamespaceManager) Mkdir(path string) bool {
+func (m *NamespaceManager) Mkdir(path string) (bool, error) {
   m.mutex.Lock()
   defer m.mutex.Unlock()
   return m.add(path, true)
 }
 
-func (m *NamespaceManager) List(path string) []string {
+func (m *NamespaceManager) List(path string) ([]string, error) {
   m.mutex.RLock()
   defer m.mutex.RUnlock()
   return m.list(path)
 }
 
-func (m *NamespaceManager) Delete(path string) bool {
+func (m *NamespaceManager) Delete(path string) (bool, error) {
   m.mutex.Lock()
   defer m.mutex.Unlock()
   return m.remove(path)
@@ -116,48 +117,63 @@ func (m *NamespaceManager) Store(path string) {
 }
 
 // Precondition: m.mutex.Lock() is called.
-func (m *NamespaceManager) add(path string, isdir bool) bool {
+func (m *NamespaceManager) add(path string, isdir bool) (bool, error) {
   parent := getParent(path)
   // Returns false if its parent directory doesn't exist or itself exists
-  if !m.exists(parent) || !m.isDir(parent) || m.exists(path) {
-    return false
+  if !m.exists(parent) {
+    return false, &sgfsErr.PathError{"add", path, sgfsErr.ErrParentNotFound}
+  }
+  if !m.isDir(parent) {
+    return false, &sgfsErr.PathError{"add", path, sgfsErr.ErrParentIsNotDir}
+  }
+  if m.exists(path) {
+    return false, &sgfsErr.PathError{"add", path, sgfsErr.ErrKeyExist}
   }
   m.paths[path] = &Info{
     IsDir: isdir,
     Length: 0,
   }
-  return true
+  return true, nil
 }
 
 // Precondition: m.mutex.Lock() is called.
-func (m *NamespaceManager) remove(path string) bool {
+func (m *NamespaceManager) remove(path string) (bool, error) {
   // Returns false if path doesn't exist in the namespace
   if !m.exists(path) {
-    return false
+    return false, &sgfsErr.PathError{"remove", path, sgfsErr.ErrKeyNotFound}
   }
   // Return false if it has children
-  if len(m.list(path)) > 0 {
-    return false
+  if m.isDir(path) {
+    ret, err := m.list(path)
+    if err != nil {
+      return false, err
+    }
+    if len(ret) > 0 {
+      return false, &sgfsErr.PathError{"remove", path, sgfsErr.ErrDirNotEmpty}
+    }
   }
   // Remove path from metadata
   delete(m.paths, path)
-  return true
+  return true, nil
 }
 
 // Precondition: m.mutex.RLock() is called.
-func (m *NamespaceManager) list(path string) []string {
+func (m *NamespaceManager) list(path string) ([]string, error) {
   paths := make([]string, 0)
   // If path doesn't exist or it is not a directory,
   // return empty []string.
-  if !m.exists(path) || !m.isDir(path) {
-    return paths
+  if !m.exists(path) {
+    return paths, &sgfsErr.PathError{"list", path, sgfsErr.ErrKeyNotFound}
+  }
+  if !m.isDir(path) {
+    return paths, &sgfsErr.PathError{"list", path, sgfsErr.ErrIsNotDir}
   }
   for key := range(m.paths) {
     if key != "/" && getParent(key) == path {
       paths = append(paths, key)
     }
   }
-  return paths
+  return paths, nil
 }
 
 // Precondition: m.mutex.RLock() is called.
