@@ -88,12 +88,12 @@ func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
 
 // Read file at a specific offset
 func (c *Client) Read(path string, offset uint64, bytes []byte) (n int, err error) {
-  info, err := c.getFileInfo(path)
+  fileLength, err := c.getFileLength(path)
   if err != nil {
     return 0, err
   }
   length := uint64(len(bytes))
-  limit := min(offset + length, uint64(info.Length)) // Read should not exceed the boundary.
+  limit := min(offset + length, uint64(fileLength)) // Read should not exceed the boundary.
   startChunkIndex := offset / ChunkSize
   endChunkIndex := (limit - 1) / ChunkSize // inclusive
   startIdx := uint64(0) // start index at a chunk
@@ -281,10 +281,10 @@ func (c *Client) findLeaseHolder(chunkhandle uint64) string {
   return ""
 }
 
-func (c *Client) getFileInfo(path string) (FileInfo, error) {
-  args := GetFileInfoArgs{path}
-  reply := new(GetFileInfoReply)
-  err := call(c.masterAddr, "MasterServer.GetFileInfo", args, reply)
-  fmt.Println(path, "file information:", reply.Info)
-  return reply.Info, err
+func (c *Client) getFileLength(path string) (int64, error) {
+  args := path
+  reply := new(int64)
+  ok := call(c.masterAddr, "MasterServer.GetFileLength", args, reply)
+  fmt.Println(path, "file length:", *reply)
+  return *reply, ok
 }

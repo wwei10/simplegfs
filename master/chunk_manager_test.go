@@ -44,7 +44,27 @@ func TestInsertLocation(t *testing.T) {
   arr = insert(arr, ":6666")
   arr = insert(arr, ":7777")
   if len(arr) != 4 {
-    t.Error("arr's length should be 4.")
+    t.Error("arr's length should be 4")
   }
   fmt.Println(arr)
+}
+
+// Test lease management.
+func TestLease(t *testing.T) {
+  fmt.Println("test lease")
+  server := []string{"1", "2", "3"}
+  m := NewChunkManager(server[:])
+  m.AddChunk("a", 1)
+  info, _ := m.FindLocations("a", 1)
+  ok := m.checkLease(info.Handle)
+  if ok {
+    t.Error("should not have lease")
+  }
+  lease, _ := m.FindLeaseHolder(info.Handle)
+  fmt.Println("info", info)
+  fmt.Println("lease", lease)
+  ok = m.checkLease(info.Handle)
+  if !ok {
+    t.Error("should have lease")
+  }
 }

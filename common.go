@@ -110,16 +110,8 @@ type ReportChunkArgs struct {
 type ReportChunkReply struct {
 }
 
-type GetFileInfoArgs struct {
-  Path string
-}
-
 type ListReply struct {
   Paths []string
-}
-
-type GetFileInfoReply struct {
-  Info FileInfo
 }
 
 // Chunkserver RPC

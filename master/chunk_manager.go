@@ -9,7 +9,11 @@ import (
   "log"
   "math/rand"
   "sync"
+  "time"
 )
+
+// Lease Expires in 1 minute
+const LeaseTimeout = time.Minute
 
 // Persistent information of a specific chunk.
 type Chunk struct {
@@ -28,6 +32,11 @@ type PathIndex struct {
   Index uint64
 }
 
+type Lease struct {
+  Primary string // Primary's location.
+  Expiration time.Time // Lease expiration time.
+}
+
 type ChunkManager struct {
   lock sync.RWMutex // Read write lock.
   chunkHandle uint64 // Increment by 1 when a new chunk is created.
@@ -42,6 +51,9 @@ type ChunkManager struct {
   locations map[uint64]*ChunkInfo
 
   chunkServers []string // chunk servers
+
+  // chunk handle -> lease
+  leases map[uint64]*Lease
 }
 
 func NewChunkManager(servers []string) *ChunkManager {
@@ -50,6 +62,7 @@ func NewChunkManager(servers []string) *ChunkManager {
     chunks: make(map[string](map[uint64]*Chunk)),
     handles: make(map[uint64]*PathIndex),
     locations: make(map[uint64]*ChunkInfo),
+    leases: make(map[uint64]*Lease),
     chunkServers: servers,
   }
   return m
@@ -60,6 +73,41 @@ func (m *ChunkManager) FindLocations(path string, chunkIndex uint64) (*ChunkInfo
   m.lock.Lock()
   defer m.lock.Unlock()
   return m.getChunkInfo(path, chunkIndex)
+}
+
+// Find lease holder and return its location.
+func (m *ChunkManager) FindLeaseHolder(handle uint64) (*Lease, error) {
+  m.lock.Lock()
+  defer m.lock.Unlock()
+  ok := m.checkLease(handle)
+  // If lease check is not passed, try to grant a new lease.
+  if !ok {
+    err := m.addLease(handle)
+    // If add lease failed, return err.
+    if err != nil {
+      return &Lease{}, err
+    }
+  }
+  // Return current lease holder for handle.
+  lease, _ := m.leases[handle]
+  return lease, nil
+}
+
+// Handle lease extension requests.
+// Lease extensions are only granted when the requesting chunkserver is the primary
+// replica.
+func (m *ChunkManager) ExtendLease(cs string, handles []uint64) {
+  m.lock.Lock()
+  defer m.lock.Unlock()
+  for _, handle := range handles {
+    lease, ok := m.leases[handle]
+    // If the entry exists and the current lease holder is requesting, extend its
+    // current lease.
+    if ok && lease.Primary == cs {
+      lease.Expiration = time.Now().Add(LeaseTimeout)
+    }
+  }
+
 }
 
 // Allocate a new chunk handle and three random chunk servers
@@ -218,6 +266,46 @@ func (m *ChunkManager) addChunk(path string, chunkIndex uint64) (*ChunkInfo, err
     Index: chunkIndex,
   }
   return m.locations[handle], nil
+}
+
+// Pre-codition: m.lock is acquired.
+// addLease will grant a lease to a randomly selected server as the primary.
+func (m *ChunkManager) addLease(handle uint64) error {
+  locations, ok := m.locations[handle]
+  if !ok {
+    return errors.New("chunk handle does not exist")
+  }
+  lease, ok := m.leases[handle]
+  if !ok {
+    // Entry not found, create a new one.
+    lease = &Lease{}
+    m.leases[handle] = lease
+  }
+  // If no chunk server is alive, can't grant a new lease.
+  if len(locations.Locations) == 0 {
+    return errors.New("no chunk server is alive")
+  }
+  // Assign new values to lease.
+  lease.Primary = locations.Locations[0] // TODO: randomly select one.
+  lease.Expiration = time.Now().Add(LeaseTimeout)
+  m.leases[handle] = lease
+  return nil
+}
+
+// Pre-condition: m.lock is acquired.
+// checkLease will check whether the lease is still valid.
+func (m *ChunkManager) checkLease(handle uint64) bool {
+  lease, ok := m.leases[handle]
+  // If lease doesn't exist, simply return false.
+  if !ok {
+    return false
+  }
+  // TODO: check if primary is still alive.
+  // If lease on the primary has already expired, return false
+  if lease.Expiration.Before(time.Now()) {
+    return false
+  }
+  return true
 }
 
 // Pick num elements randomly from array.
