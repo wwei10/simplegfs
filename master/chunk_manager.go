@@ -79,11 +79,7 @@ func (m *ChunkManager) FindLocations(path string, chunkIndex uint64) (*ChunkInfo
 func (m *ChunkManager) FindLeaseHolder(handle uint64) (*Lease, error) {
   m.lock.Lock()
   defer m.lock.Unlock()
-  ok, err := m.checkLease(handle)
-  // If checkLease failed and return some error that we can't handle.
-  if err != nil {
-    return &Lease{}, err
-  }
+  ok := m.checkLease(handle)
   // If lease check is not passed, try to grant a new lease.
   if !ok {
     err := m.addLease(handle)
@@ -298,18 +294,18 @@ func (m *ChunkManager) addLease(handle uint64) error {
 
 // Pre-condition: m.lock is acquired.
 // checkLease will check whether the lease is still valid.
-func (m *ChunkManager) checkLease(handle uint64) (bool, error) {
+func (m *ChunkManager) checkLease(handle uint64) bool {
   lease, ok := m.leases[handle]
   // If lease doesn't exist, simply return false.
   if !ok {
-    return false, nil
+    return false
   }
   // TODO: check if primary is still alive.
   // If lease on the primary has already expired, return false
   if lease.Expiration.Before(time.Now()) {
-    return false, nil
+    return false
   }
-  return true, nil
+  return true
 }
 
 // Pick num elements randomly from array.

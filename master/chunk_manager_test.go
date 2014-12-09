@@ -56,14 +56,14 @@ func TestLease(t *testing.T) {
   m := NewChunkManager(server[:])
   m.AddChunk("a", 1)
   info, _ := m.FindLocations("a", 1)
-  ok, _ := m.checkLease(info.Handle)
+  ok := m.checkLease(info.Handle)
   if ok {
     t.Error("should not have lease")
   }
   lease, _ := m.FindLeaseHolder(info.Handle)
   fmt.Println("info", info)
   fmt.Println("lease", lease)
-  ok, _ = m.checkLease(info.Handle)
+  ok = m.checkLease(info.Handle)
   if !ok {
     t.Error("should have lease")
   }
