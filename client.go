@@ -13,10 +13,6 @@ type Client struct {
   clientId uint64
   locationCache *cache.Cache
   leaseHolderCache *cache.Cache
-
-  // Stores file name of the files that the client is trying to request lease
-  // extension on.
-  pendingExtension []string
 }
 
 func NewClient(masterAddr string) *Client {

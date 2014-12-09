@@ -39,13 +39,6 @@ type MasterServer struct {
   ckhandle2locLease map[uint64]locationsAndLease
 }
 
-// Client lease management
-type clientLease struct {
-  clientId uint64 // The client who holds the lease before softLimit expires
-  softLimit time.Time // The lease ends at softLimit, can be extended
-  hardLimit time.Time // The hard limit on how long a client can have the lease
-}
-
 // Used for master's mapping from chunkhandle to locations and lease.
 type locationsAndLease struct {
   primary string // Selected by master, holds and renews lease on the chunk.
