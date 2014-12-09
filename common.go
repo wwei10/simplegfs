@@ -160,20 +160,20 @@ type PushDataReply struct {
 
 // Helper functions
 func call(srv string, rpcname string,
-          args interface{}, reply interface{}) bool {
+          args interface{}, reply interface{}) error {
   c, errx := rpc.Dial("tcp", srv)
   if errx != nil {
-    return false
+    return errx
   }
   defer c.Close()
 
   err := c.Call(rpcname, args, reply)
-  if err == nil {
-    return true
+  if err != nil {
+    fmt.Println("RPC call failed:", err)
+    return err
   }
 
-  fmt.Println(err)
-  return false
+  return nil
 }
 
 func min(x, y uint64) uint64 {

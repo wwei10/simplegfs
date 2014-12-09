@@ -1,7 +1,6 @@
 package simplegfs
 
 import (
-  "errors"
   "fmt"
   "github.com/wweiw/simplegfs/pkg/cache"
   "time"
@@ -101,9 +100,9 @@ func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
 
 // Read file at a specific offset
 func (c *Client) Read(path string, offset uint64, bytes []byte) (n int, err error) {
-  info, ok := c.getFileInfo(path)
-  if !ok {
-    return 0, errors.New("file not found")
+  info, err := c.getFileInfo(path)
+  if err != nil {
+    return 0, err
   }
   length := uint64(len(bytes))
   limit := min(offset + length, uint64(info.Length)) // Read should not exceed the boundary.
@@ -140,13 +139,13 @@ func (c *Client) Stop() {
   c.leaseHolderCache.Stop()
 }
 
-func (c *Client) read(path string, chunkIndex, start uint64, bytes []byte) (n int, err error) {
+func (c *Client) read(path string, chunkIndex, start uint64,
+                      bytes []byte) (n int, err error) {
   // Get chunkhandle and locations
-  // TODO: Cache chunk handle and location
   length := uint64(len(bytes))
   fmt.Println(c.clientId, "read", path, chunkIndex, start, len(bytes))
-  reply, ok := c.findChunkLocations(path, chunkIndex)
-  if !ok {
+  reply, err := c.findChunkLocations(path, chunkIndex)
+  if err != nil {
     // TODO: Error handling. Define error code or something.
     return 0, nil
   }
@@ -165,17 +164,16 @@ func (c *Client) read(path string, chunkIndex, start uint64, bytes []byte) (n in
 
 func (c *Client) write(path string, chunkIndex, start, end uint64,
                        bytes []byte) bool {
-  // TODO: first try to get from cache.
   // Get chunkhandle and locations.
   // For auditing
   fmt.Println(c.clientId, "write", path, chunkIndex, start, end, string(bytes))
-  reply, ok := c.findChunkLocations(path, chunkIndex)
+  reply, err := c.findChunkLocations(path, chunkIndex)
   var chunkHandle uint64
   var chunkLocations []string
-  if !ok {
+  if err != nil {
     // If chunk does not exist, add the chunk.
-    reply, ok := c.addChunk(path, chunkIndex)
-    if !ok {
+    reply, err := c.addChunk(path, chunkIndex)
+    if err != nil {
       return false
     }
     chunkHandle = reply.ChunkHandle
@@ -201,7 +199,8 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
   // First push data to each replicas' memory.
   for _, cs := range chunkLocations {
     pushDataReply := new(PushDataReply)
-    if ok := call(cs, "ChunkServer.PushData", pushDataArgs, pushDataReply); !ok {
+    if err := call(cs, "ChunkServer.PushData", pushDataArgs,
+                   pushDataReply); err != nil {
       return false;
     }
   }
@@ -216,41 +215,43 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
     ChunkLocations: chunkLocations,
   }
   writeReply := new(WriteReply)
-  if ok := call(primary, "ChunkServer.Write", writeArgs, writeReply); !ok {
+  if err := call(primary, "ChunkServer.Write", writeArgs,
+                 writeReply); err != nil {
     return false
   }
   return true
 }
 
-func (c *Client) addChunk(path string, chunkIndex uint64) (AddChunkReply, bool) {
+func (c *Client) addChunk(path string, chunkIndex uint64) (AddChunkReply,
+                                                           error) {
   args := AddChunkArgs{
     Path: path,
     ChunkIndex: chunkIndex,
   }
   reply := new(AddChunkReply)
-  ok := call(c.masterAddr, "MasterServer.AddChunk", args, reply)
-  return *reply, ok
+  err := call(c.masterAddr, "MasterServer.AddChunk", args, reply)
+  return *reply, err
 }
 
 // Find chunkhandle and chunk locations given filename and chunkIndex
-func (c *Client) findChunkLocations(path string, chunkIndex uint64) (FindLocationsReply, bool) {
+func (c *Client) findChunkLocations(path string, chunkIndex uint64) (FindLocationsReply, error) {
   key := fmt.Sprintf("%s,%d", path, chunkIndex)
   value, ok := c.locationCache.Get(key)
   if ok {
     reply := value.(*FindLocationsReply)
-    return *reply, ok
+    return *reply, nil
   }
   args := FindLocationsArgs{
     Path: path,
     ChunkIndex: chunkIndex,
   }
   reply := new(FindLocationsReply)
-  ok = call(c.masterAddr, "MasterServer.FindLocations", args, reply)
-  if ok {
+  err := call(c.masterAddr, "MasterServer.FindLocations", args, reply)
+  if err == nil {
     // Set cache entry to the answers we get.
     c.locationCache.Set(key, reply)
   }
-  return *reply, ok
+  return *reply, err
 }
 
 // Client.findLeaseHolder
@@ -274,8 +275,8 @@ func (c *Client) findLeaseHolder(chunkhandle uint64) string {
     ChunkHandle: chunkhandle,
   }
   reply := new(FindLeaseHolderReply)
-  ok = call(c.masterAddr, "MasterServer.FindLeaseHolder", args, reply)
-  if ok {
+  err := call(c.masterAddr, "MasterServer.FindLeaseHolder", args, reply)
+  if err == nil {
     // Cache lease holder, set cache entry expiration time to lease expiration
     // time.
     c.leaseHolderCache.SetWithTimeout(key, reply,
@@ -284,10 +285,10 @@ func (c *Client) findLeaseHolder(chunkhandle uint64) string {
   return reply.Primary
 }
 
-func (c *Client) getFileInfo(path string) (FileInfo, bool) {
+func (c *Client) getFileInfo(path string) (FileInfo, error) {
   args := GetFileInfoArgs{path}
   reply := new(GetFileInfoReply)
-  ok := call(c.masterAddr, "MasterServer.GetFileInfo", args, reply)
+  err := call(c.masterAddr, "MasterServer.GetFileInfo", args, reply)
   fmt.Println(path, "file information:", reply.Info)
-  return reply.Info, ok
+  return reply.Info, err
 }
