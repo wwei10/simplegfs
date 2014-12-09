@@ -150,32 +150,58 @@ func (c *Client) read(path string, chunkIndex, start uint64,
   return resp.Length, nil // TODO: Error handling
 }
 
+// The pushData function pushes data to all replica's memory through RPC.
+func (c *Client) pushData(chunkLocations []string, dataId DataId, data []byte) bool {
+  // Push data to each replica's memory.
+  for _, cs := range chunkLocations {
+    pushDataReply := new(PushDataReply)
+    if err := call(cs, "ChunkServer.PushData", &PushDataArgs{dataId, data},
+                   pushDataReply); err != nil {
+      return false
+    }
+  }
+  return true
+}
+
+// The guaranteeChunkLocations takes in a path name and a chunkIndex and
+// guarantees to return a chunkHandle and chunkLocations unless some
+// unexpected error occurs and the operation is no retriable. It does this
+// by first looking for chunk locations normally, if not found, tries to
+// add the chunk to master server.
+func (c *Client) guaranteeChunkLocations(path string, chunkIndex uint64) (uint64, []string, error) {
+  // Find locations
+  chunkHandle, chunkLocations, err := c.findChunkLocations(path, chunkIndex)
+
+  // If cannot find chunk, add the chunk.
+  if err != nil {
+    chunkHandle, chunkLocations, err = c.addChunk(path, chunkIndex)
+  }
+
+  // Other client might have added the chunk simultaneously,
+  // must check error code. If it already exists, find the location again.
+  if err != nil && err == sgfsErr.ErrChunkExist {
+    chunkHandle, chunkLocations, err = c.findChunkLocations(path, chunkIndex)
+  }
+
+  // Either some other err occurred during add Chunk, or the second
+  // findChunkLocation fails.
+  if err != nil {
+    return chunkHandle, chunkLocations, err
+  }
+
+  // If no unexpected error has occurred.
+  return chunkHandle, chunkLocations, nil
+}
+
 func (c *Client) write(path string, chunkIndex, start, end uint64,
                        bytes []byte) bool {
   // Get chunkhandle and locations.
   // For auditing
   fmt.Println(c.clientId, "write", path, chunkIndex, start, end, string(bytes))
 
-  chunkHandle, chunkLocations, err := c.findChunkLocations(path, chunkIndex)
-  // If cannot find chunk, add the chunk.
+  // Get chunkHandle and chunkLocations
+  chunkHandle, chunkLocations, err := c.guaranteeChunkLocations(path, chunkIndex)
   if err != nil {
-    chunkHandle, chunkLocations, err = c.addChunk(path, chunkIndex)
-  }
-  // Other client might have added the chunk simultaneously,
-  // must check error code. If it already exists, find the location again.
-  if err != nil && err == sgfsErr.ErrChunkExist {
-    chunkHandle, chunkLocations, err = c.findChunkLocations(path, chunkIndex)
-  }
-  // Either some other err occurred during add Chunk, or the second
-  // findChunkLocation fails.
-  if err != nil {
-    return false
-  }
-
-  // Get the primary location.
-  primary := c.findLeaseHolder(chunkHandle)
-  if primary == "" {
-    log.Println("Primary chunk server not found.")
     return false
   }
 
@@ -184,21 +210,21 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
     ClientId: c.clientId,
     Timestamp: time.Now(),
   }
-  pushDataArgs := PushDataArgs{
-    DataId: dataId,
-    Data: bytes,
-  }
 
-  // First push data to each replicas' memory.
-  for _, cs := range chunkLocations {
-    pushDataReply := new(PushDataReply)
-    if err := call(cs, "ChunkServer.PushData", pushDataArgs,
-                   pushDataReply); err != nil {
-      return false;
-    }
+  // Push data to all replicas' memory.
+  pushed := c.pushData(chunkLocations, dataId, bytes)
+  if !pushed {
+    log.Println("Data did not push to all replicas.")
+    return false
   }
 
   // Once data is pushed to all replicas, send write request to the primary.
+  primary := c.findLeaseHolder(chunkHandle)
+  if primary == "" {
+    log.Println("Primary chunk server not found.")
+    return false
+  }
+
   writeArgs := WriteArgs{
     DataId: dataId,
     Path: path,

@@ -230,6 +230,7 @@ func StartMasterServer(me string, servers []string) *MasterServer {
     chunkhandle: 1,
     chunkservers: make(map[string]time.Time),
     namespaceManager: master.NewNamespaceManager(),
+    chunkManager: master.NewChunkManager(servers),
   }
 
   loadServerMeta(ms)
@@ -342,7 +343,7 @@ func parseServerMeta(ms *MasterServer, f *os.File) {
         log.Fatal("Failed to load clientId into ms.clientId")
       }
     default:
-      log.Fatal("Unknown serverMeta key.")
+      log.Fatal("Unknown serverMeta key: " + fields[0])
     }
   }
 }
