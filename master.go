@@ -266,45 +266,6 @@ func (ms *MasterServer) GetFileInfo(args GetFileInfoArgs,
   return nil
 }
 
-// MasterServer.NewLease
-//
-// Handles RPC calls from client who requests a new lease on a file.
-// A lease can only be granted if the client is not currently holding the
-// lease, and no one else is currently holding the lease.
-// A client who is currently holding the lease should call
-// MasterServer.ExtendLease instead.
-//
-// param  - args: a NewLeaseArgs which contains a clientId and a filename.
-//          reply: a NewLeaseReply which contains a softLimit indicating how
-//                 long does the client has the lease, a hardLimit indicating
-//                 the longest possible time the client can hold the lease.
-// return - appropriate error if any, nil otherwise
-func (ms *MasterServer) NewLease(args NewLeaseArgs,
-                                 reply *NewLeaseReply) error {
-  path := args.Path
-  clientId := args.ClientId
-  val, ok := ms.file2ClientLease[path]
-  // Check to see if anyone(including the requesting client) is currently
-  // holding a lease to the requested file.
-  if ok && time.Now().Before(val.softLimit) {
-    return errors.New("Cannot grant lease to client " +
-                      strconv.FormatUint(clientId, 10) +
-                      ". Lease held by client " +
-                      strconv.FormatUint(val.clientId, 10) + ".")
-  }
-  val = clientLease{
-    clientId: clientId,
-    softLimit: time.Now().Add(SoftLeaseTime),
-    hardLimit: time.Now().Add(HardLeaseTime),
-  }
-  ms.file2ClientLease[path] = val
-  reply.SoftLimit = val.softLimit
-  reply.HardLimit = val.hardLimit
-  fmt.Println("New lease granted to client", clientId, "for file", path,
-              "expires at", val.softLimit.Unix())
-  return nil
-}
-
 // Tell the server to shut itself down
 // for testing
 func (ms *MasterServer) Kill() {
@@ -407,7 +368,7 @@ func storeServerMeta(ms *MasterServer) {
 
 // Store MasterServer.chunkhandle on to MasterServer.serverMeta
 //
-// parram  - ms: a pointer to a MasterServer instance
+// param  - ms: a pointer to a MasterServer instance
 //           f: a pointer to os.File serverMeta
 // return - none
 func storeChunkhandle(ms *MasterServer, f *os.File) {
@@ -534,7 +495,7 @@ func (ms *MasterServer) checkLease(chunkhandle uint64) bool {
 
 // MasterServer.csExtendLease
 //
-// Called by Hearbeat RPC handler, when chunkservers heartbeat message includes
+// Called by Heartbeat RPC handler, when chunkservers heartbeat message includes
 // lease extension requests.
 // Lease extensions are only granted when the requesting chunkserver is the
 // primary replica.
