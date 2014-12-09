@@ -44,32 +44,32 @@ func NewClient(masterAddr string) *Client {
 // Client APIs
 
 // Create a file
-func (c *Client) Create(path string) bool {
+func (c *Client) Create(path string) (bool, error) {
   // TODO: Error handling
   reply := new(bool)
-  call(c.masterAddr, "MasterServer.Create", path, reply)
-  return *reply
+  err := call(c.masterAddr, "MasterServer.Create", path, reply)
+  return *reply, err
 }
 
 // Mkdir
-func (c *Client) Mkdir(path string) bool {
+func (c *Client) Mkdir(path string) (bool, error) {
   reply := new(bool)
-  call(c.masterAddr, "MasterServer.Mkdir", path, reply)
-  return *reply
+  err := call(c.masterAddr, "MasterServer.Mkdir", path, reply)
+  return *reply, err
 }
 
 // List dir
-func (c *Client) List(path string) []string {
+func (c *Client) List(path string) ([]string, error) {
   reply := new(ListReply)
-  call(c.masterAddr, "MasterServer.List", path, reply)
-  return reply.Paths
+  err := call(c.masterAddr, "MasterServer.List", path, reply)
+  return reply.Paths, err
 }
 
 // Delete a directory or a file
-func (c *Client) Delete(path string) bool {
+func (c *Client) Delete(path string) (bool, error) {
   reply := new(bool)
-  call(c.masterAddr, "MasterServer.Delete", path, reply)
-  return *reply
+  err := call(c.masterAddr, "MasterServer.Delete", path, reply)
+  return *reply, err
 }
 
 // Write file at a specific offset
