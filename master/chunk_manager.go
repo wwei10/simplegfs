@@ -97,6 +97,23 @@ func (m *ChunkManager) FindLeaseHolder(handle uint64) (*Lease, error) {
   return lease, nil
 }
 
+// Handle lease extension requests.
+// Lease extensions are only granted when the requesting chunkserver is the primary
+// replica.
+func (m *ChunkManager) ExtendLease(cs string, handles []uint64) {
+  m.lock.Lock()
+  defer m.lock.Unlock()
+  for _, handle := range handles {
+    lease, ok := m.leases[handle]
+    // If the entry exists and the current lease holder is requesting, extend its
+    // current lease.
+    if ok && lease.Primary == cs {
+      lease.Expiration = time.Now().Add(LeaseTimeout)
+    }
+  }
+
+}
+
 // Allocate a new chunk handle and three random chunk servers
 // for a given file's chunk.
 func (m *ChunkManager) AddChunk(path string, chunkIndex uint64) (*ChunkInfo, error) {
