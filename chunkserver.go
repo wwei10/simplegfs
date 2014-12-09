@@ -39,7 +39,7 @@ type ChunkServer struct {
   pendingExtensions []uint64
   // Only used by Hearbeat and ChunkServer.addChunkExtensionRequest.
   // Possible to have ChunkServer.mutex held first, therefore do not acquire
-  // ChunkServer.mutex after acuqire this lock.
+  // ChunkServer.mutex after acquire this lock.
   pendingExtensionsLock sync.RWMutex
 
   // Stores client's data in memory before commit to disk.
@@ -88,7 +88,7 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   // Update chunkserver metadata.
   cs.reportChunkInfo(chunkhandle, args.ChunkIndex, args.Path, length, off)
 
-  // RPC each secondary chunkserver to apply the wirte.
+  // RPC each secondary chunkserver to apply the write.
   for _, chunkLocation := range args.ChunkLocations {
     if chunkLocation != cs.me {
       if ok := call(chunkLocation, "ChunkServer.SerializedWrite", args, reply); !ok {
@@ -105,7 +105,7 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
 
 // ChunkServer.SerializedWrite
 //
-// RPC handler for primary chunkservers to send write reqeusts to secondary
+// RPC handler for primary chunkservers to send write requests to secondary
 // chunkservers.
 //
 // params - WriteArgs: DataId, identifies the data stores in ChunkServer.data
@@ -243,7 +243,7 @@ func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
   // Heartbeat
   go func() {
     for cs.dead == false {
-      // Send lease extension requests with Hearbeat message, if any.
+      // Send lease extension requests with Heartbeat message, if any.
       cs.pendingExtensionsLock.Lock()
       args := &HeartbeatArgs{
         Addr: cs.me,
