@@ -368,7 +368,7 @@ func storeServerMeta(ms *MasterServer) {
 
 // Store MasterServer.chunkhandle on to MasterServer.serverMeta
 //
-// parram  - ms: a pointer to a MasterServer instance
+// param  - ms: a pointer to a MasterServer instance
 //           f: a pointer to os.File serverMeta
 // return - none
 func storeChunkhandle(ms *MasterServer, f *os.File) {
@@ -495,7 +495,7 @@ func (ms *MasterServer) checkLease(chunkhandle uint64) bool {
 
 // MasterServer.csExtendLease
 //
-// Called by Hearbeat RPC handler, when chunkservers heartbeat message includes
+// Called by Heartbeat RPC handler, when chunkservers heartbeat message includes
 // lease extension requests.
 // Lease extensions are only granted when the requesting chunkserver is the
 // primary replica.
