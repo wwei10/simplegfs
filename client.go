@@ -184,7 +184,10 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
   }
 
   // Get the primary location.
-  primary := c.findLeaseHolder(chunkHandle)
+  if primary := c.findLeaseHolder(chunkHandle); primary == "" {
+    log.Println("Primary chunk server not found.")
+    return false
+  }
 
   // Construct dataId with clientId and current timestamp.
   dataId := DataId{
@@ -260,7 +263,8 @@ func (c *Client) findChunkLocations(path string, chunkIndex uint64) (FindLocatio
 // with chunkhandle to find the current lease holder of the target chunk.
 //
 // params - chunkhandle: Unique ID of the target chunk.
-// return - string: Location of the primary chunkserver.
+// return - string: Location of the primary chunkserver if successful, nil
+//                  otherwise.
 func (c *Client) findLeaseHolder(chunkhandle uint64) string {
   // First check with the leaseHolderCache
   key := fmt.Sprintf("%d", chunkhandle)
@@ -281,8 +285,10 @@ func (c *Client) findLeaseHolder(chunkhandle uint64) string {
     // time.
     c.leaseHolderCache.SetWithTimeout(key, reply,
                                       reply.LeaseEnds.Sub(time.Now()))
+    return reply.Primary
   }
-  return reply.Primary
+
+  return ""
 }
 
 func (c *Client) getFileInfo(path string) (FileInfo, error) {
