@@ -120,6 +120,7 @@ func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error 
   var data []byte
   var ok bool
   if args.IsAppend {
+    // Padding chunk with zeros.
     padLength := ChunkSize - args.Offset
     data = make([]byte, padLength)
   } else {

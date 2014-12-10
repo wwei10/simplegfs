@@ -1,11 +1,12 @@
 package simplegfs
 
 import (
+  "bufio"
   "fmt"
   "github.com/wweiw/simplegfs/pkg/testutil"
+  "log"
   "time"
   "os"
-  "bufio"
   "testing"
   "strings"
   "strconv"
@@ -46,6 +47,78 @@ func testEnd() {
   }
   fmt.Println("----- Finish\tUnknown")
   fmt.Println()
+}
+
+// Construct a master server instance given master's address
+// params - addr: Master server's address.
+//          ckAddrs: An array of chunk server addresses.
+// return - A pointer to a MasterServer instance.
+func initMaster(addr string, ckAddrs []string) *MasterServer{
+  ms := StartMasterServer(addr, ckAddrs)
+  time.Sleep(HeartbeatInterval)
+  return ms
+}
+
+// Kills the master server instance
+// params - ms: A pointer to a MasterServer instance.
+// return - None.
+func killMaster(ms *MasterServer) {
+  ms.Kill()
+}
+
+// Construct an array of chunk server instances given the master's address, an
+// array of chunk server addresses, and an array of chunk server paths.
+// params - msAddr: Master server's address.
+//          ckAddrs: An array of chunk server addresses.
+//          ckPaths: An array of chunk server paths.
+// return - An array of ChunkServer pointers
+func initChunkServers(msAddr string, ckAddrs []string,
+                      ckPaths []string) []*ChunkServer{
+  // Error checking
+  if len(ckAddrs) != len(ckPaths) {
+    log.Fatal("Must provide same amount of chunk server addresses and " +
+              "chunk server paths")
+  }
+
+  // Return value
+  ckServers := make([]*ChunkServer, len(ckAddrs))
+
+  for i, ckAddr := range ckAddrs {
+    os.Mkdir(ckPaths[i], FilePermRWX)
+    ckServers[i] = StartChunkServer(msAddr, ckAddr, ckPaths[i])
+  }
+
+  // Sleep
+  time.Sleep(2 * HeartbeatInterval)
+  return ckServers
+}
+
+// Kills an array of ChunkServer instances, and removes chunk server paths.
+// params - ckAddrs: An array of pointer to chunk server instances.
+//          ckPaths: An array of chunk server paths.
+// return - None.
+func killChunkServers(cks []*ChunkServer, ckPaths []string) {
+  for _, ck := range cks {
+    ck.Kill()
+  }
+  for _, ckPath := range ckPaths {
+    os.RemoveAll(ckPath)
+  }
+}
+
+// Construct an array of Client instances given master's address.
+// params - msAddr: Master server's address.
+//          n: Number of Client instances.
+// return - An array of pointers of Client instances.
+func initClients(msAddr string, n int) []*Client {
+  cs := make([]*Client, n)
+  for i, _ := range cs {
+    cs[i] = NewClient(msAddr)
+  }
+
+  // Sleep
+  time.Sleep(2 * HeartbeatInterval)
+  return cs
 }
 
 func TestNewClientId(t *testing.T) {
