@@ -32,7 +32,7 @@ type ChunkServer struct {
   chunkServerMeta string
 
   path string
-  chunks map[uint64]ChunkInfo // Store a mapping from handle to information.
+  chunks map[uint64]*ChunkInfo // Store a mapping from handle to information.
   mutex sync.RWMutex
 
   // Stores pending lease extension requests on chunkhandles.
@@ -210,7 +210,7 @@ func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
     masterAddr: masterAddr,
     chunkServerMeta: "chunkServerMeta" + me,
     path: path,
-    chunks: make(map[uint64]ChunkInfo),
+    chunks: make(map[uint64]*ChunkInfo),
     data: make(map[DataId][]byte),
   }
 
@@ -431,7 +431,7 @@ func (cs *ChunkServer) reportChunkInfo(chunkhandle, chunkindex uint64,
   // or chunk size has changed, we should
   // report to Master immediately.
   if !ok {
-    cs.chunks[chunkhandle] = ChunkInfo{
+    cs.chunks[chunkhandle] = &ChunkInfo{
       Path: path,
       ChunkHandle: chunkhandle,
       ChunkIndex: chunkindex,
@@ -440,6 +440,6 @@ func (cs *ChunkServer) reportChunkInfo(chunkhandle, chunkindex uint64,
   chunkInfo := cs.chunks[chunkhandle]
   if offset + length > chunkInfo.Length {
     chunkInfo.Length = offset + length
-    reportChunk(cs, chunkInfo)
+    reportChunk(cs, *chunkInfo)
   }
 }
