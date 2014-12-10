@@ -25,8 +25,6 @@ type MasterServer struct {
   // Filename of a file that contains MasterServer metadata
   serverMeta string
 
-  chunkservers map[string]time.Time
-
   // Namespace manager
   namespaceManager *master.NamespaceManager
 
@@ -54,7 +52,9 @@ type locationsAndLease struct {
 // and chunkservers.
 func (ms *MasterServer) Heartbeat(args *HeartbeatArgs,
                                   reply *HeartbeatReply) error {
-  ms.chunkservers[args.Addr] = time.Now()
+  // First process heartbeat message.
+  ms.chunkManager.HandleHeartbeat(args.Addr)
+  // Deal with lease extensions.
   if len(args.PendingExtensions) > 0 {
     ms.csExtendLease(args.Addr, args.PendingExtensions)
   }
@@ -227,6 +227,7 @@ func (ms *MasterServer) GetFileLength(args string, reply *int64) error {
 func (ms *MasterServer) Kill() {
   ms.dead = true
   ms.l.Close()
+  ms.chunkManager.Stop()
 }
 
 func StartMasterServer(me string, servers []string) *MasterServer {
@@ -235,7 +236,6 @@ func StartMasterServer(me string, servers []string) *MasterServer {
     serverMeta: "serverMeta" + me,
     clientId: 1,
     chunkhandle: 1,
-    chunkservers: make(map[string]time.Time),
     namespaceManager: master.NewNamespaceManager(),
     chunkManager: master.NewChunkManager(servers),
   }
@@ -284,6 +284,8 @@ func StartMasterServer(me string, servers []string) *MasterServer {
 // handle background tasks
 func (ms *MasterServer) tick() {
   // TODO: Scan in-memory data structures to find dead chunk servers
+  // Remove dead servers from in-memory data structures.
+  ms.chunkManager.HeartbeatCheck()
 }
 
 // Called whenever server's persistent meta data changes.

@@ -5,6 +5,8 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"github.com/wweiw/simplegfs/pkg/cache"
+	"github.com/wweiw/simplegfs/pkg/set"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -14,6 +16,9 @@ import (
 
 // Lease Expires in 1 minute
 const LeaseTimeout = time.Minute
+
+var heartbeatGC = 2 * time.Minute
+var heartbeatExpiration = time.Minute
 
 // Persistent information of a specific chunk.
 type Chunk struct {
@@ -37,24 +42,29 @@ type Lease struct {
 	Expiration time.Time // Lease expiration time.
 }
 
+// Chunk manager does the actual bookkeeping work for chunk servers.
 type ChunkManager struct {
-	lock         sync.RWMutex                   // Read write lock.
-	chunkHandle  uint64                         // Increment by 1 when a new chunk is created.
-	chunks       map[string](map[uint64]*Chunk) // (path, chunk index) -> chunk information (persistent)
-	handles      map[uint64]*PathIndex          // chunk handle -> (path, chunk index) (inverse of chunks)
-	locations    map[uint64]*ChunkInfo          // chunk handle -> chunk locations (in-memory)
-	chunkServers []string                       // Chunk servers.
-	leases       map[uint64]*Lease              // chunk handle -> lease
+	lock           sync.RWMutex                   // Read write lock.
+	chunkHandle    uint64                         // Increment by 1 when a new chunk is created.
+	chunks         map[string](map[uint64]*Chunk) // (path, chunk index) -> chunk information (persistent)
+	handles        map[uint64]*PathIndex          // chunk handle -> (path, chunk index) (inverse of chunks)
+	locations      map[uint64]*ChunkInfo          // chunk handle -> chunk locations (in-memory)
+	chunkServers   []string                       // Alive chunk servers.
+	serverChunkMap map[string]*set.Set            // Server -> chunk mapping.
+	heartbeats     *cache.Cache                   // Cache of updated-heartbeat servers.
+	leases         map[uint64]*Lease              // chunk handle -> lease
 }
 
 func NewChunkManager(servers []string) *ChunkManager {
 	m := &ChunkManager{
-		chunkHandle:  uint64(0),
-		chunks:       make(map[string](map[uint64]*Chunk)),
-		handles:      make(map[uint64]*PathIndex),
-		locations:    make(map[uint64]*ChunkInfo),
-		leases:       make(map[uint64]*Lease),
-		chunkServers: servers,
+		chunkHandle:    uint64(0),
+		chunks:         make(map[string](map[uint64]*Chunk)),
+		handles:        make(map[uint64]*PathIndex),
+		locations:      make(map[uint64]*ChunkInfo),
+		leases:         make(map[uint64]*Lease),
+		chunkServers:   servers,
+		heartbeats:     cache.New(heartbeatExpiration, heartbeatGC),
+		serverChunkMap: make(map[string]*set.Set),
 	}
 	return m
 }
@@ -131,11 +141,69 @@ func (m *ChunkManager) SetChunkLocation(handle uint64, address string) error {
 			Locations: make([]string, 0),
 		}
 		m.locations[handle] = info
+		m.serverChunkMap[address].Add(handle)
 	}
 	// TODO: Add address into the locations array. Need to ensure the there are no
 	// duplicates in the array.
-	info.Locations = insert(info.Locations, address)
+	info.Locations = insertElem(info.Locations, address)
 	return nil
+}
+
+// Heartbeat associated functions.
+
+// Process heartbeat message and update server status.
+func (m *ChunkManager) HandleHeartbeat(server string) {
+	log.Println("handle heartbeat from", server)
+	// If haven't seen this server before,
+	// Insert server into elem.
+	if _, ok := m.heartbeats.Get(server); !ok {
+		m.lock.Lock()
+		m.chunkServers = insertElem(m.chunkServers, server)
+		fmt.Println(m.chunkServers)
+		m.lock.Unlock()
+	}
+	m.heartbeats.Set(server, true)
+}
+
+// Update chunkServers so that it contains only servers that are alive.
+// This function only supports single-threaded mode.
+func (m *ChunkManager) HeartbeatCheck() {
+	log.Println("heartbeat check")
+	chunkServers := make([]string, 0)
+	for _, server := range m.chunkServers {
+		fmt.Println("server", server)
+		_, ok := m.heartbeats.Get(server)
+		if ok {
+			fmt.Println("exist")
+			chunkServers = append(chunkServers, server)
+		} else {
+			set, ok := m.serverChunkMap[server]
+			if !ok {
+				continue
+			}
+			handles := set.Slice()
+			fmt.Println("slice", handles)
+			// Acquire lock first.
+			m.lock.Lock()
+			for _, v := range handles {
+				// Slice() returns interface{}, should first convert to uint64.
+				handle, ok := v.(uint64)
+				if ok {
+					// Remove handle from chunk handle -> location mapping.
+					m.locations[handle].Locations = removeElem(m.locations[handle].Locations, server)
+				}
+			}
+			m.lock.Unlock()
+		}
+	}
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.chunkServers = chunkServers
+}
+
+// Release any resources it holds.
+func (m *ChunkManager) Stop() {
+	m.heartbeats.Stop()
 }
 
 // Helper functions
@@ -311,11 +379,22 @@ func random(array []string, num int) []string {
 
 // Add an element into an array. Need to ensure there are
 // no dupliates.
-func insert(array []string, elem string) []string {
+func insertElem(array []string, elem string) []string {
 	for _, s := range array {
 		if s == elem {
 			return array
 		}
 	}
 	return append(array, elem)
+}
+
+// Remove an element in the array. Returns a new array.
+func removeElem(array []string, elem string) []string {
+	ret := make([]string, 0)
+	for _, s := range array {
+		if s != elem {
+			ret = append(ret, s)
+		}
+	}
+	return ret
 }
