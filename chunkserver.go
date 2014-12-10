@@ -89,14 +89,9 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   // Update chunkserver metadata.
   cs.reportChunkInfo(chunkhandle, args.ChunkIndex, args.Path, length, off)
 
-  // RPC each secondary chunkserver to apply the write.
-  for _, chunkLocation := range args.ChunkLocations {
-    if chunkLocation != cs.me {
-      if err := call(chunkLocation, "ChunkServer.SerializedWrite", args,
-                     reply); err != nil {
-        return err
-      }
-    }
+  // Apply the write to all secondary replicas.
+  if err := cs.applyToSecondary(args, reply); err != nil {
+    return err
   }
 
   // Since we are still writing to the chunk, we must continue request
@@ -122,11 +117,18 @@ func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error 
   cs.mutex.Lock()
   defer cs.mutex.Unlock()
 
-  // Fetch data from ChunkServer.data
-  data, ok := cs.data[args.DataId]
-  if !ok {
-    return errors.New("ChunkServer.SerializedWrite: requested data " +
-                      "is not in memory")
+  var data []byte
+  var ok bool
+  if args.IsAppend {
+    padLength := ChunkSize - args.Offset
+    data = make([]byte, padLength)
+  } else {
+    // Fetch data from ChunkServer.data
+    data, ok = cs.data[args.DataId]
+    if !ok {
+      return errors.New("ChunkServer.SerializedWrite: requested data " +
+                        "is not in memory")
+    }
   }
 
   // Apply write reqeust to local state.
@@ -235,7 +237,9 @@ func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
 
   // If less the three fourth of the chunk is avaliable for more data, pad.
   if chunkLength < ChunkSize / 4 * 3 {
-    //TODO c.padChunk(chunkHandle)
+    if err := cs.padChunk(&filename, chunkLength, &args); err != nil {
+      return err
+    }
     return sgfsErr.ErrNotEnoughSpace
   }
 
@@ -248,7 +252,7 @@ func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
   cs.reportChunkInfo(args.ChunkHandle, args.ChunkIndex, args.Path, length,
                      chunkLength)
 
-  // RPC each secondary chunkserver to apply the write.
+  // Apply append to all secondary replicas.
   writeArgs := WriteArgs{
     DataId: args.DataId,
     ChunkHandle: args.ChunkHandle,
@@ -258,18 +262,16 @@ func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
     Offset: uint64(chunkLength),
   }
   writeReply := new(WriteReply)
-  for _, chunkLocation := range args.ChunkLocations {
-    if chunkLocation != cs.me {
-      if err := call(chunkLocation, "ChunkServer.SerializedWrite", writeArgs,
-                     writeReply); err != nil {
-        return err
-      }
-    }
+  if err := cs.applyToSecondary(writeArgs, writeReply); err != nil {
+    return err
   }
 
   // Since we are still writing to the chunk, we must continue request
   // lease extensions on the chunk.
   cs.addChunkExtensionRequest(args.ChunkHandle)
+
+  // Set offset for returning to client.
+  reply.Offset = int(chunkLength)
   return nil
 }
 
@@ -503,4 +505,60 @@ func (cs *ChunkServer) reportChunkInfo(chunkhandle, chunkindex uint64,
     chunkInfo.Length = offset + length
     reportChunk(cs, *chunkInfo)
   }
+}
+
+// padChunk is called by the primary replica that pads the target chunk
+// with zeros. After padding the chunk on local server, it also directs
+// secondary chunk servers to do the same by sending serialized write requests.
+// Note that cs.mutex must be held before calling this function.
+// fileName - File name of the chunk on disk.
+// offset - Location of the file to start padding.
+func (cs *ChunkServer) padChunk(fileName *string, offset int64,
+                                args *AppendArgs) error {
+  // Pad the chunk locally.
+  padLength := ChunkSize - offset
+  data := make([]byte, padLength)
+  if err := cs.applyWrite(*fileName, data, offset); err != nil {
+    return err
+  }
+
+  // Update chunkserver metadata.
+  cs.reportChunkInfo(args.ChunkHandle, args.ChunkIndex, args.Path, padLength,
+                     offset)
+
+  // Apply pad to all secondary replicas.
+  writeArgs := WriteArgs{
+    DataId: args.DataId,
+    ChunkHandle: args.ChunkHandle,
+    ChunkIndex: args.ChunkIndex,
+    Path: args.Path,
+    ChunkLocations: args.ChunkLocations,
+    Offset: uint64(offset),
+    IsAppend: true,
+  }
+  writeReply := new(WriteReply)
+  if err := cs.applyToSecondary(writeArgs, writeReply); err != nil {
+    return err
+  }
+
+  // Since we are still writing to the chunk, we must continue request
+  // lease extensions on the chunk.
+  cs.addChunkExtensionRequest(args.ChunkHandle)
+
+  return nil
+}
+
+// applyToSecondary is used by the primary replica to apply any modifications
+// that are serialized by the replica, to all of its secondary replicas.
+func (cs *ChunkServer) applyToSecondary(args WriteArgs, reply *WriteReply) error {
+  // RPC each secondary chunkserver to apply the write.
+  for _, chunkLocation := range args.ChunkLocations {
+    if chunkLocation != cs.me {
+       err := call(chunkLocation, "ChunkServer.SerializedWrite", args, reply)
+       if err != nil {
+        return err
+      }
+    }
+  }
+  return nil
 }

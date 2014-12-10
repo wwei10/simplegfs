@@ -123,6 +123,7 @@ type WriteArgs struct {
   Offset uint64
   Path string
   ChunkLocations []string
+  IsAppend bool
 }
 
 type WriteReply struct {
