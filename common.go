@@ -1,7 +1,6 @@
 package simplegfs
 
 import (
-  "fmt"
   "net/rpc"
   "time"
 )
@@ -161,7 +160,6 @@ func call(srv string, rpcname string,
 
   err := c.Call(rpcname, args, reply)
   if err != nil {
-    fmt.Println("RPC call failed:", err)
     return err
   }
 

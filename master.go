@@ -2,9 +2,8 @@ package simplegfs
 
 import (
   "bufio" // For reading lines from a file
-  "fmt"
   "github.com/wweiw/simplegfs/master"
-  "log"
+  log "github.com/Sirupsen/logrus"
   "net"
   "net/rpc"
   "os" // For os file operations
@@ -133,7 +132,7 @@ func (ms *MasterServer) Delete(args string,
 // return - Appropriate error if any, nil otherwise.
 func (ms *MasterServer) FindLocations(args FindLocationsArgs,
                                       reply *FindLocationsReply) error {
-  fmt.Println("Find Locations RPC")
+  log.Debugln("Find Locations RPC")
   path := args.Path
   chunkIndex := args.ChunkIndex
   info, err := ms.chunkManager.FindLocations(path, chunkIndex)
@@ -159,7 +158,7 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
 // return - nil.
 func (ms *MasterServer) FindLeaseHolder(args FindLeaseHolderArgs,
                                         reply *FindLeaseHolderReply) error {
-  fmt.Println("MasterServer: FindLeaseHolder RPC")
+  log.Debugln("MasterServer: FindLeaseHolder RPC")
   lease, err := ms.chunkManager.FindLeaseHolder(args.ChunkHandle)
   if err != nil {
     return err
@@ -172,7 +171,7 @@ func (ms *MasterServer) FindLeaseHolder(args FindLeaseHolderArgs,
 // Client calls AddChunk to get a new chunk.
 func (ms *MasterServer) AddChunk(args AddChunkArgs,
                                  reply *AddChunkReply) error {
-  fmt.Println(ms.me + " Add chunk RPC")
+  log.Debugln(ms.me + " Add chunk RPC")
   path := args.Path
   chunkIndex := args.ChunkIndex
   info, err := ms.chunkManager.AddChunk(path, chunkIndex)
@@ -189,7 +188,7 @@ func (ms *MasterServer) AddChunk(args AddChunkArgs,
 // the chunk.
 func (ms *MasterServer) ReportChunk(args ReportChunkArgs,
                                     reply *ReportChunkReply) error {
-  fmt.Println("MasterServer: Report Chunk.")
+  log.Debugln("MasterServer: Report Chunk.")
   length := args.Length
   handle := args.ChunkHandle
   server := args.ServerAddress
@@ -204,16 +203,16 @@ func (ms *MasterServer) ReportChunk(args ReportChunkArgs,
     return err
   }
   calculated := int64(ChunkSize * pathIndex.Index) + length
-  fmt.Println("Result", calculated, "index", pathIndex.Index, "length", length)
+  log.Debugln("Result", calculated, "index", pathIndex.Index, "length", length)
   if calculated > fileLength {
     ms.namespaceManager.SetFileLength(pathIndex.Path, calculated)
-    fmt.Println("#### New length:", calculated)
+    log.Debugln("#### New length:", calculated)
   }
   return nil
 }
 
 func (ms *MasterServer) GetFileLength(args string, reply *int64) error {
-  fmt.Println("MasterServer: GetFileLength")
+  log.Debugln("MasterServer: GetFileLength")
   length, err := ms.namespaceManager.GetFileLength(args)
   if err != nil {
     return err
@@ -260,7 +259,7 @@ func StartMasterServer(me string, servers []string) *MasterServer {
       } else if err == nil {
         conn.Close()
       } else if err != nil && ms.dead == false {
-        fmt.Println("Kill server.")
+        log.Debugln("Kill server.")
         ms.Kill()
       }
     }
@@ -293,8 +292,7 @@ func (ms *MasterServer) tick() {
 func storeServerMeta(ms *MasterServer) {
   f, er := os.OpenFile(ms.serverMeta, os.O_RDWR|os.O_CREATE, FilePermRW)
   if er != nil {
-    // TODO Use log instead
-    fmt.Println("Open/Create file ", ms.serverMeta, " failed.")
+    log.Debugln("Open/Create file ", ms.serverMeta, " failed.")
   }
   defer f.Close()
 
@@ -311,9 +309,9 @@ func storeClientId(ms *MasterServer, f *os.File) {
   n, err := f.WriteString("clientId " +
                           strconv.FormatUint(ms.clientId, 10) + "\n")
   if err != nil {
-    fmt.Println(err)
+    log.Debugln(err)
   } else {
-    fmt.Printf("Wrote %d bytes to serverMeta\n", n)
+    log.Debugf("Wrote %d bytes to serverMeta\n", n)
   }
 }
 
@@ -325,7 +323,7 @@ func storeClientId(ms *MasterServer, f *os.File) {
 func loadServerMeta(ms *MasterServer) {
   f, err := os.OpenFile(ms.serverMeta, os.O_RDONLY, FilePermRW)
   if err != nil {
-    fmt.Println("Open file ", ms.serverMeta, " failed.");
+    log.Debugln("Open file ", ms.serverMeta, " failed.");
   }
   defer f.Close()
   parseServerMeta(ms, f)

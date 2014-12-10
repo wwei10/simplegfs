@@ -3,6 +3,7 @@ package simplegfs
 import (
   "fmt"
   "github.com/wweiw/simplegfs/pkg/testutil"
+  log "github.com/Sirupsen/logrus"
   "time"
   "os"
   "bufio"
@@ -17,6 +18,7 @@ import (
 // param  - none
 // return - none
 func testStart() {
+  log.SetLevel(log.WarnLevel)
   pc, _, _, ok := runtime.Caller(1)
   if ok {
     test := runtime.FuncForPC(pc)

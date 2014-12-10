@@ -9,7 +9,7 @@ import (
   "encoding/gob"
   "bufio"
   "strings"
-  "log"
+  log "github.com/Sirupsen/logrus"
   "net"
   "net/rpc"
   "os"
@@ -65,7 +65,7 @@ type ChunkServer struct {
 //          WriteReply: None.
 // return - Appropriate error if any, nil otherwise.
 func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
-  fmt.Println(cs.me, "ChunkServer: Write RPC.")
+  log.Debugln(cs.me, "ChunkServer: Write RPC.")
   cs.mutex.Lock()
   defer cs.mutex.Unlock()
 
@@ -117,7 +117,7 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
 //          WriteReply: None.
 // return - Appropriate error if any, nil otherwise.
 func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error {
-  fmt.Println(cs.me, "ChunkServer: SerializedWrite RPC")
+  log.Debugln(cs.me, "ChunkServer: SerializedWrite RPC")
   cs.mutex.Lock()
   defer cs.mutex.Unlock()
 
@@ -142,7 +142,7 @@ func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error 
 }
 
 func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReply) error {
-  fmt.Println(cs.me, "Read RPC.")
+  log.Debugln(cs.me, "Read RPC.")
   chunkhandle := args.ChunkHandle
   off := args.Offset
   length := args.Length
@@ -186,7 +186,7 @@ func (cs *ChunkServer) Kill() {
 //                        increasing on each client instance.
 // return - nil.
 func (cs *ChunkServer) PushData(args PushDataArgs, reply *PushDataReply) error {
-  fmt.Println("ChunkServer: PushData RPC")
+  log.Debugln("ChunkServer: PushData RPC")
   dataId := args.DataId
 
   // Acquire lock on ChunkServer.Data
@@ -233,7 +233,7 @@ func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
       } else if err == nil {
         conn.Close()
       } else if err != nil && cs.dead == false {
-        fmt.Println("Kill chunk server.")
+        log.Debugln("Kill chunk server.")
         cs.Kill()
       }
     }
@@ -281,7 +281,7 @@ func reportChunk(cs *ChunkServer, info ChunkInfo) {
 func loadChunkServerMeta (c *ChunkServer) {
   f, err := os.Open(c.chunkServerMeta)
   if err != nil {
-    fmt.Println("Open file ", c.chunkServerMeta, " failed.");
+    log.Debugln("Open file ", c.chunkServerMeta, " failed.");
   }
   defer f.Close()
   parseChunkServerMeta(f, c)
@@ -305,7 +305,7 @@ func parseChunkServerMeta(f *os.File, c *ChunkServer) {
       b := bytes.NewBufferString(fields[1])
       c.chunkhandle2VersionNum = decodeMap(b)
     default:
-      fmt.Println("Unknown ChunkServer key")
+      log.Debugln("Unknown ChunkServer key")
     }
   }
 }
@@ -317,7 +317,7 @@ func parseChunkServerMeta(f *os.File, c *ChunkServer) {
 func storeChunkServerMeta (c *ChunkServer) {
   f, er := os.OpenFile(c.chunkServerMeta, os.O_RDWR|os.O_CREATE, FilePermRW)
   if er != nil {
-    fmt.Println("Open/Create file ", c.chunkServerMeta, " failed.")
+    log.Debugln("Open/Create file ", c.chunkServerMeta, " failed.")
   }
   defer f.Close()
 
@@ -335,9 +335,9 @@ func storeChunkhandle2VersionNum (c *ChunkServer, f *os.File) {
   b := encodeMap(&c.chunkhandle2VersionNum)
   n, err := f.WriteString("chunkhandle2VersionNum " + b.String() + "\n")
   if err != nil {
-    fmt.Println(err)
+    log.Debugln(err)
   } else {
-    fmt.Printf("Wrote %d bytes into %s\n", n, c.chunkServerMeta)
+    log.Debugf("Wrote %d bytes into %s\n", n, c.chunkServerMeta)
   }
 }
 
@@ -350,7 +350,7 @@ func encodeMap(m *map[uint64]uint64) *bytes.Buffer {
   e := gob.NewEncoder(b)
   err := e.Encode(m)
   if err != nil {
-    fmt.Println(err)
+    log.Debugln(err)
   }
   return b
 }
@@ -364,7 +364,7 @@ func decodeMap(b *bytes.Buffer) map[uint64]uint64 {
   var decodedMap map[uint64]uint64
   err := d.Decode(&decodedMap)
   if err != nil {
-    fmt.Println(err)
+    log.Debugln(err)
   }
   return decodedMap
 }
