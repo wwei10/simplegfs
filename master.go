@@ -266,11 +266,34 @@ func StartMasterServer(me string, servers []string) *MasterServer {
     }
   }()
 
-  // Background tasks
+  // Handle heartbeat messages.
   go func() {
     for ms.dead == false {
       ms.tick()
-      time.Sleep(HeartbeatInterval)
+      time.Sleep(time.Minute)
+    }
+  }()
+
+  // Re-replication.
+  go func() {
+    for ms.dead == false {
+      time.Sleep(1 * time.Minute)
+      ms.chunkManager.ScheduleReplication()
+      // Sleep after lease expires
+      time.Sleep(LeaseTimeout)
+      // Start replication
+      handle, location, targets, err := ms.chunkManager.StartReplication()
+      if err != nil {
+        ms.chunkManager.ClearReplication()
+        continue
+      }
+      for _, target := range targets {
+        args := StartReplicateChunkArgs{handle, target}
+        reply := new(StartReplicateChunkArgs)
+        call(location, "ChunkServer.StartReplicateChunk", args, reply)
+      }
+      // Remove all pending replication requests.
+      ms.chunkManager.ClearReplication()
     }
   }()
 
@@ -280,8 +303,7 @@ func StartMasterServer(me string, servers []string) *MasterServer {
 
 // Helper functions
 
-// tick() is called once per PingInterval to
-// handle background tasks
+// tick() is called once for a while to execute background task.
 func (ms *MasterServer) tick() {
   // TODO: Scan in-memory data structures to find dead chunk servers
   // Remove dead servers from in-memory data structures.

@@ -225,6 +225,7 @@ func (m *ChunkManager) HeartbeatCheck() {
 // Pick one chunk that has the highest priority as the candidate to
 // for re-replication.
 func (m *ChunkManager) ScheduleReplication() {
+  // Ensure there are at most m.scheduleReps is 1.
 	if len(m.scheduledReps) > 1 {
 		return
 	}
@@ -239,6 +240,22 @@ func (m *ChunkManager) ScheduleReplication() {
 		}
 	}
 	m.scheduledReps = append(m.scheduledReps, highestHandle)
+}
+
+// Start replication.
+// Returns handle, location, target location
+func (m *ChunkManager) StartReplication() (uint64, string, []string, error) {
+  handle := m.scheduledReps[0]
+  if len(m.locations[handle].Locations) == 0 {
+    return 0, "", []string{}, errors.New("no available locaiton")
+  }
+  location := m.locations[handle].Locations[0]
+  return handle, location, m.pendingRepMap[handle].target, nil
+}
+
+// Clear replication.
+func (m *ChunkManager) ClearReplication() {
+  m.scheduledReps = make([]uint64, 0)
 }
 
 // Release any resources it holds.
