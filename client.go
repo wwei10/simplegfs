@@ -61,27 +61,28 @@ func (c *Client) Delete(path string) (bool, error) {
 // Append writes data to an offset chosen by the primary chunk server.
 // Data is only appened if its size if less then AppendSize, which is one
 // forth of ChunkSize.
-// Returns the offset if successful, -1 otherwise.
-func (c *Client) Append(path string, data []byte) int {
+// Returns (offset chosen by primary, nil) if success, appropriate
+// error otherwise.
+// The caller must check return error before using the offset.
+func (c *Client) Append(path string, data []byte) (uint64, error) {
   // First check if the size is valid.
   if len(data) > AppendSize {
     log.Println("ERROR: Data size exceeds append limit.")
-    return -1
+    return 0, sgfsErr.ErrAppendLimitExceeded
   }
 
   // To calculate chunkIndex we must get the length.
   fileLength, err := c.getFileLength(path)
   if err != nil {
     log.Println("ERROR: Get file length failed.")
-    return -1
+    return 0, err
   }
   chunkIndex := uint64(fileLength /  ChunkSize)
 
   // Get chunkHandle and chunkLocations
   chunkHandle, chunkLocations, err := c.guaranteeChunkLocations(path, chunkIndex)
   if err != nil {
-    log.Println("ERROR: Guarantee chunk locations failed.")
-    return -1
+    return 0, err
   }
 
   // Construct dataId with clientId and current timestamp.
@@ -91,17 +92,15 @@ func (c *Client) Append(path string, data []byte) int {
   }
 
   // Push data to all replicas' memory.
-  pushed := c.pushData(chunkLocations, dataId, data)
-  if !pushed {
-    log.Println("Data did not push to all replicas.")
-    return -1
+  err = c.pushData(chunkLocations, dataId, data)
+  if err != nil {
+    return 0, err
   }
 
   // Once data is pushed to all replicas, send append request to the primary.
   primary := c.findLeaseHolder(chunkHandle)
   if primary == "" {
-    log.Println("Primary chunk server not found.")
-    return -1
+    return 0, sgfsErr.ErrLeaseHolderNotFound
   }
 
   // Construct Append RPC arguments and replies.
@@ -117,9 +116,9 @@ func (c *Client) Append(path string, data []byte) int {
   // Send Append request.
   if err := call(primary, "ChunkServer.Append", appendArgs,
                  appendReply); err != nil {
-    return -1
+    return 0, err
   }
-  return appendReply.Offset
+  return appendReply.Offset, nil
 }
 
 // Write file at a specific offset
@@ -215,16 +214,16 @@ func (c *Client) read(path string, chunkIndex, start uint64,
 }
 
 // The pushData function pushes data to all replica's memory through RPC.
-func (c *Client) pushData(chunkLocations []string, dataId DataId, data []byte) bool {
+func (c *Client) pushData(chunkLocations []string, dataId DataId, data []byte) error {
   // Push data to each replica's memory.
   for _, cs := range chunkLocations {
     pushDataReply := new(PushDataReply)
     if err := call(cs, "ChunkServer.PushData", &PushDataArgs{dataId, data},
                    pushDataReply); err != nil {
-      return false
+      return err
     }
   }
-  return true
+  return nil
 }
 
 // The guaranteeChunkLocations takes in a path name and a chunkIndex and
@@ -243,7 +242,7 @@ func (c *Client) guaranteeChunkLocations(path string, chunkIndex uint64) (uint64
 
   // Other client might have added the chunk simultaneously,
   // must check error code. If it already exists, find the location again.
-  if err != nil && err == sgfsErr.ErrChunkExist {
+  if err != nil && err.Error() == sgfsErr.ErrChunkExist.Error() {
     chunkHandle, chunkLocations, err = c.findChunkLocations(path, chunkIndex)
   }
 
@@ -276,8 +275,8 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
   }
 
   // Push data to all replicas' memory.
-  pushed := c.pushData(chunkLocations, dataId, bytes)
-  if !pushed {
+  err = c.pushData(chunkLocations, dataId, bytes)
+  if err != nil {
     log.Println("Data did not push to all replicas.")
     return false
   }

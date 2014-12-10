@@ -10,8 +10,30 @@ import (
   "testing"
   "strings"
   "strconv"
+  "sync"
   "runtime"
 )
+
+// Test configurations.
+const MasterAddr = ":4444"
+const ck1Addr = ":5555"
+const ck2Addr = ":5556"
+const ck3Addr = ":5557"
+const ck4Addr = ":5558"
+const ck5Addr = ":5559"
+const ck6Addr = ":5560"
+const ck1Path = "/var/tmp/ck1"
+const ck2Path = "/var/tmp/ck2"
+const ck3Path = "/var/tmp/ck3"
+const ck4Path = "/var/tmp/ck4"
+const ck5Path = "/var/tmp/ck5"
+const ck6Path = "/var/tmp/ck6"
+const testFile1 = "/a"
+const testFile2 = "/b"
+const testFile3 = "/c"
+const testData1 = "The quick brown fox jumps over the lazy dog.\n"
+const testData2 = "Perfection is reached not when there is nothing left" +
+                  " to add, but when there is nothing left to take away.\n"
 
 // Print a logging message indicatin the test has started.
 //
@@ -453,6 +475,61 @@ func TestChunkServerLease(t *testing.T) {
   os.RemoveAll(ck1Path)
   os.RemoveAll(ck2Path)
   os.RemoveAll(ck3Path)
+
+  testEnd()
+}
+
+func TestAppend(t *testing.T) {
+  testStart()
+
+  // Local test config.
+  numClients := 5
+  localTestData1 := strings.Repeat(testData1, 20)
+  ckAddrs := [...]string{ck1Addr, ck2Addr, ck3Addr}
+  ckPaths := [...]string{ck1Path, ck2Path, ck3Path}
+
+  // Init master server, chunk servers, and clients.
+  ms := initMaster(MasterAddr, ckAddrs[:])
+  cks := initChunkServers(MasterAddr, ckAddrs[:], ckPaths[:])
+  cs := initClients(MasterAddr, numClients)
+
+  // Create a file to write to.
+  if ok, err := cs[0].Create(testFile1); !ok {
+    log.Fatal("Failed to create testFile")
+    t.Error(err)
+  }
+
+  // Issue concurrent appends.
+  var wg sync.WaitGroup
+  for _, c := range cs {
+    wg.Add(1)
+    fmt.Println("Client ID", c.clientId)
+    go func(c *Client) {
+      fmt.Println("Client ID", c.clientId)
+      defer wg.Done()
+      offset, err := c.Append(testFile1, []byte(localTestData1))
+      if err != nil {
+        t.Error(err)
+      }
+      fmt.Println("Client", c.clientId, "appended to offset", offset)
+      time.Sleep(2 * time.Second)
+      readBuf := make([]byte, len(localTestData1))
+      _, err = c.Read(testFile1, offset, readBuf);
+      if err != nil {
+        t.Error(err)
+      }
+      if string(readBuf) != localTestData1 {
+        t.Error("Read does not match append.")
+      }
+      fmt.Println("Client", c.clientId, "read", string(readBuf))
+    }(c)
+  }
+
+  // Shut down.
+  wg.Wait()
+  killChunkServers(cks, ckPaths[:])
+  killMaster(ms)
+  time.Sleep(time.Second)
 
   testEnd()
 }

@@ -157,7 +157,7 @@ type AppendArgs struct {
 }
 
 type AppendReply struct {
-  Offset int
+  Offset uint64
 }
 
 // Helper functions

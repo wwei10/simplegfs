@@ -237,7 +237,7 @@ func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
   }
 
   // If less the three fourth of the chunk is avaliable for more data, pad.
-  if chunkLength < ChunkSize / 4 * 3 {
+  if chunkLength >= ChunkSize / 4 * 3 {
     if err := cs.padChunk(&filename, chunkLength, &args); err != nil {
       return err
     }
@@ -272,7 +272,7 @@ func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
   cs.addChunkExtensionRequest(args.ChunkHandle)
 
   // Set offset for returning to client.
-  reply.Offset = int(chunkLength)
+  reply.Offset = uint64(chunkLength) + args.ChunkIndex * ChunkSize
   return nil
 }
 

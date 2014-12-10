@@ -8,6 +8,7 @@ import (
   "io/ioutil"
   "log"
   "math/rand"
+  sgfsErr "github.com/wweiw/simplegfs/error"
   "sync"
   "time"
 )
@@ -249,7 +250,7 @@ func (m *ChunkManager) addChunk(path string, chunkIndex uint64) (*ChunkInfo, err
   _, ok = m.chunks[path][chunkIndex]
   if ok {
     fmt.Println("Chunk index already exists.")
-    return info, errors.New("Chunk index already exists.")
+    return info, sgfsErr.ErrChunkExist
   }
   handle := m.chunkHandle
   m.chunkHandle++
