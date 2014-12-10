@@ -114,10 +114,17 @@ func (c *Client) Append(path string, data []byte) (uint64, error) {
   appendReply := new(AppendReply)
 
   // Send Append request.
-  if err := call(primary, "ChunkServer.Append", appendArgs,
-                 appendReply); err != nil {
-    return 0, err
+  err = call(primary, "ChunkServer.Append", appendArgs, appendReply)
+  if err != nil {
+    // If not enough space on the target chunk for append, retry append
+    // request on a new chunk.
+    if err.Error() == sgfsErr.ErrNotEnoughSpace.Error() {
+      c.Append(path, data)
+    } else {
+      return 0, err
+    }
   }
+
   return appendReply.Offset, nil
 }
 

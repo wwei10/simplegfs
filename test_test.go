@@ -14,7 +14,7 @@ import (
   "runtime"
 )
 
-// Test configurations.
+// Global test config.
 const MasterAddr = ":4444"
 const ck1Addr = ":5555"
 const ck2Addr = ":5556"
@@ -533,3 +533,62 @@ func TestAppend(t *testing.T) {
 
   testEnd()
 }
+
+// TestAppend2 tests record append for when appending data exceeds more then
+// one chunk.
+func TestAppend2(t *testing.T) {
+  testStart()
+
+  // Local test config.
+  numClients := 5
+  localTestData1 := strings.Repeat(testData1, 298261)
+  ckAddrs := [...]string{ck1Addr, ck2Addr, ck3Addr}
+  ckPaths := [...]string{ck1Path, ck2Path, ck3Path}
+
+  // Init master server, chunk servers, and clients.
+  ms := initMaster(MasterAddr, ckAddrs[:])
+  cks := initChunkServers(MasterAddr, ckAddrs[:], ckPaths[:])
+  cs := initClients(MasterAddr, numClients)
+
+  // Create a file to write to.
+  if ok, err := cs[0].Create(testFile1); !ok {
+    log.Fatal("Failed to create testFile")
+    t.Error(err)
+  }
+
+  // Issue concurrent appends.
+  var wg sync.WaitGroup
+  for _, c := range cs {
+    wg.Add(1)
+    fmt.Println("Client ID", c.clientId)
+    go func(c *Client) {
+      fmt.Println("Client ID", c.clientId)
+      defer wg.Done()
+      offset, err := c.Append(testFile1, []byte(localTestData1))
+      if err != nil {
+        t.Error(err)
+        return
+      }
+      fmt.Println("Client", c.clientId, "appended to offset", offset)
+      time.Sleep(2 * time.Second)
+      readBuf := make([]byte, len(localTestData1))
+      _, err = c.Read(testFile1, offset, readBuf);
+      if err != nil {
+        t.Error(err)
+      }
+      if string(readBuf) != localTestData1 {
+        t.Error("Read does not match append.")
+        return
+      }
+    }(c)
+  }
+
+  // Shut down.
+  wg.Wait()
+  killChunkServers(cks, ckPaths[:])
+  killMaster(ms)
+  time.Sleep(time.Second)
+
+  testEnd()
+}
+

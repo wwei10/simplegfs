@@ -209,9 +209,9 @@ func (cs *ChunkServer) PushData(args PushDataArgs, reply *PushDataReply) error {
 
 // Append accepts client append request and append the data to an offset
 // chosen by the primary replica. It then serializes the request just like
-// Write request, and send it to all secondary replicas. If less then three
-// fourth of the chunk is avaliable for more data, we must pad the chunk and
-// tell client to retry append on a new chunk.
+// Write request, and send it to all secondary replicas.
+// If appending the record to the current chunk would cause the chunk to
+// exceed the maximum size, append fails and the client must retry.
 // It also puts the offset chosen in AppendReply so the client knows where
 // the data is appended to.
 func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
@@ -236,8 +236,10 @@ func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
     chunkLength = chunkInfo.Length
   }
 
-  // If less the three fourth of the chunk is avaliable for more data, pad.
-  if chunkLength >= ChunkSize / 4 * 3 {
+  // If appending the record to the current chunk would cause the chunk to
+  // exceed the maximum size, report error for client to retry at another
+  // chunk.
+  if chunkLength + length >= ChunkSize {
     if err := cs.padChunk(&filename, chunkLength, &args); err != nil {
       return err
     }
@@ -516,6 +518,8 @@ func (cs *ChunkServer) reportChunkInfo(chunkhandle, chunkindex uint64,
 // offset - Location of the file to start padding.
 func (cs *ChunkServer) padChunk(fileName *string, offset int64,
                                 args *AppendArgs) error {
+  log.Println("ChunkServer.padChunk:", args.Path, *fileName, offset)
+
   // Pad the chunk locally.
   padLength := ChunkSize - offset
   data := make([]byte, padLength)
