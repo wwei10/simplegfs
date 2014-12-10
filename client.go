@@ -58,6 +58,70 @@ func (c *Client) Delete(path string) (bool, error) {
   return *reply, err
 }
 
+// Append writes data to an offset chosen by the primary chunk server.
+// Data is only appened if its size if less then AppendSize, which is one
+// forth of ChunkSize.
+// Returns the offset if successful, -1 otherwise.
+func (c *Client) Append(path string, data []byte) int {
+  // First check if the size is valid.
+  if len(data) > AppendSize {
+    log.Println("ERROR: Data size exceeds append limit.")
+    return -1
+  }
+
+  // To calculate chunkIndex we must get the length.
+  fileLength, err := c.getFileLength(path)
+  if err != nil {
+    log.Println("ERROR: Get file length failed.")
+    return -1
+  }
+  chunkIndex := uint64(fileLength /  ChunkSize)
+
+  // Get chunkHandle and chunkLocations
+  chunkHandle, chunkLocations, err := c.guaranteeChunkLocations(path, chunkIndex)
+  if err != nil {
+    log.Println("ERROR: Guarantee chunk locations failed.")
+    return -1
+  }
+
+  // Construct dataId with clientId and current timestamp.
+  dataId := DataId{
+    ClientId: c.clientId,
+    Timestamp: time.Now(),
+  }
+
+  // Push data to all replicas' memory.
+  pushed := c.pushData(chunkLocations, dataId, data)
+  if !pushed {
+    log.Println("Data did not push to all replicas.")
+    return -1
+  }
+
+  // Once data is pushed to all replicas, send append request to the primary.
+  primary := c.findLeaseHolder(chunkHandle)
+  if primary == "" {
+    log.Println("Primary chunk server not found.")
+    return -1
+  }
+
+  // Construct Append RPC arguments and replies.
+  appendArgs := AppendArgs {
+    DataId: dataId,
+    ChunkHandle: chunkHandle,
+    ChunkIndex: chunkIndex,
+    Path: path,
+    ChunkLocations: chunkLocations,
+  }
+  appendReply := new(AppendReply)
+
+  // Send Append request.
+  if err := call(primary, "ChunkServer.Append", appendArgs,
+                 appendReply); err != nil {
+    return -1
+  }
+  return appendReply.Offset
+}
+
 // Write file at a specific offset
 func (c *Client) Write(path string, offset uint64, bytes []byte) bool {
   // TODO: Split one write into multiple RPC

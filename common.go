@@ -12,6 +12,7 @@ const ChunkSize = 64 * (1 << 20)
 const HeartbeatInterval = 100 * time.Millisecond
 const CacheTimeout = time.Minute
 const CacheGCInterval = time.Minute
+const AppendSize = ChunkSize / 4
 
 // ChunkServer lease related const
 const LeaseTimeout = 60 * time.Second
@@ -144,6 +145,18 @@ type PushDataArgs struct {
 }
 
 type PushDataReply struct {
+}
+
+type AppendArgs struct {
+  DataId DataId
+  ChunkHandle uint64
+  ChunkIndex uint64
+  Path string
+  ChunkLocations []string
+}
+
+type AppendReply struct {
+  Offset int
 }
 
 // Helper functions
