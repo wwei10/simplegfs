@@ -13,6 +13,7 @@ import (
   "net"
   "net/rpc"
   "os"
+  sgfsErr "github.com/wweiw/simplegfs/error"
   "sync"
 )
 
@@ -200,6 +201,75 @@ func (cs *ChunkServer) PushData(args PushDataArgs, reply *PushDataReply) error {
 
   // Otherwise push data into chunkserver's memory.
   cs.data[dataId] = args.Data
+  return nil
+}
+
+// Append accepts client append request and append the data to an offset
+// chosen by the primary replica. It then serializes the request just like
+// Write request, and send it to all secondary replicas. If less then three
+// fourth of the chunk is avaliable for more data, we must pad the chunk and
+// tell client to retry append on a new chunk.
+// It also puts the offset chosen in AppendReply so the client knows where
+// the data is appended to.
+func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
+  fmt.Println(cs.me, "ChunkServer: Append RPC.")
+  cs.mutex.Lock()
+  defer cs.mutex.Unlock()
+
+  // Extract/define arguments.
+  data, ok := cs.data[args.DataId]
+  if !ok {
+    return sgfsErr.ErrDataNotInMem
+  }
+  length := int64(len(data))
+  filename := fmt.Sprintf("%d", args.ChunkHandle)
+
+  // Get length of the current chunk so we can calculate an offset.
+  chunkInfo, ok := cs.chunks[args.ChunkHandle]
+  // If we cannot find chunkInfo, means this is a new chunk, therefore offset
+  // should be zero, otherwise the offset should be the chunk length.
+  chunkLength := int64(0)
+  if ok {
+    chunkLength = chunkInfo.Length
+  }
+
+  // If less the three fourth of the chunk is avaliable for more data, pad.
+  if chunkLength < ChunkSize / 4 * 3 {
+    //TODO c.padChunk(chunkHandle)
+    return sgfsErr.ErrNotEnoughSpace
+  }
+
+  // Apply write request to local state, with chunkLength as offset.
+  if err := cs.applyWrite(filename, data, chunkLength); err != nil {
+    return err
+  }
+
+  // Update chunkserver metadata.
+  cs.reportChunkInfo(args.ChunkHandle, args.ChunkIndex, args.Path, length,
+                     chunkLength)
+
+  // RPC each secondary chunkserver to apply the write.
+  writeArgs := WriteArgs{
+    DataId: args.DataId,
+    ChunkHandle: args.ChunkHandle,
+    ChunkIndex: args.ChunkIndex,
+    Path: args.Path,
+    ChunkLocations: args.ChunkLocations,
+    Offset: uint64(chunkLength),
+  }
+  writeReply := new(WriteReply)
+  for _, chunkLocation := range args.ChunkLocations {
+    if chunkLocation != cs.me {
+      if err := call(chunkLocation, "ChunkServer.SerializedWrite", writeArgs,
+                     writeReply); err != nil {
+        return err
+      }
+    }
+  }
+
+  // Since we are still writing to the chunk, we must continue request
+  // lease extensions on the chunk.
+  cs.addChunkExtensionRequest(args.ChunkHandle)
   return nil
 }
 
@@ -410,18 +480,9 @@ func (cs *ChunkServer) applyWrite(filename string, data []byte, offset int64) er
   return nil
 }
 
-// ChunkServer.reportChunkInfo
-//
-// Helper function for ChunkServer.Write and ChunkServer.SerializedWrite to
-// update chunkserver metadata after a write request.
-// Note: ChunkServer.mutex is held by the caller.
-//
-// params - chunkhandle: Unique ID of the chunk.
-//          chunkindex: Chunk's position in file.
-//          path: Name of the file that contains the chunk.
-//          length: Length of the write request data.
-//          offset: Current offset before write is applied.
-// return - None.
+// reportChunkInfo is a helper function for ChunkServer.Write,
+// ChunkServer.SerializedWrite and ChunkServer.Append to update chunkserver's
+// metadata after a write request.
 func (cs *ChunkServer) reportChunkInfo(chunkhandle, chunkindex uint64,
                                        path string,
                                        length, offset int64) {
