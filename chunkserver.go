@@ -148,25 +148,10 @@ func (cs *ChunkServer) Read(args ReadArgs, reply *ReadReply) error {
   length := args.Length
   bytes := make([]byte, length)
   filename := fmt.Sprintf("%d", chunkhandle)
-  file, err := os.Open(cs.path + "/" + filename)
-  if err != nil {
-    log.Fatal(err)
-  }
-  defer file.Close()
-  n, err := file.ReadAt(bytes, off)
-  if err != nil {
-    switch err {
-    case io.EOF:
-      reply.Length = n
-      reply.Bytes = bytes
-    default:
-      log.Fatal(err)
-    }
-  } else {
-    reply.Length = n
-    reply.Bytes = bytes
-  }
-  return nil
+  n, err := cs.read(filename, bytes, off)
+  reply.Length = n
+  reply.Bytes = bytes
+  return err
 }
 
 // Kill for testing.
@@ -201,6 +186,35 @@ func (cs *ChunkServer) PushData(args PushDataArgs, reply *PushDataReply) error {
   // Otherwise push data into chunkserver's memory.
   cs.data[dataId] = args.Data
   return nil
+}
+
+// Handles chunk server RPC to replicate a chunk. Data is in replicate chunk args.
+func (cs *ChunkServer) ReplicateChunk(args ReplicateChunkArgs, reply *ReplicateChunkReply) error {
+  fmt.Println("ChunkServer: ReplicateChunk")
+  filename := fmt.Sprintf("%d", args.Handle)
+  data := args.Data
+  if err := cs.applyWrite(filename, data, 0); err != nil {
+    return err
+  }
+  return nil
+}
+
+// Master sends a command to chunk server to start replication of a chunk.
+func (cs *ChunkServer) StartReplicateChunk(args StartReplicateChunkArgs, reply *StartReplicateChunkReply) error {
+  handle := args.Handle
+  address := args.Address
+  argsRep := ReplicateChunkArgs{}
+  bytes := make([]byte, ChunkSize)
+  filename := fmt.Sprintf("%d", handle)
+  n, err := cs.read(filename, bytes, 0)
+  if err != nil {
+    return err
+  }
+  argsRep.Handle = handle
+  argsRep.Data = bytes[:n]
+  replyRep := new(StartReplicateChunkReply)
+  err = call(address, "ChunkServer.ReplicateChunk", argsRep, replyRep)
+  return err
 }
 
 func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
@@ -408,6 +422,26 @@ func (cs *ChunkServer) applyWrite(filename string, data []byte, offset int64) er
   // Write data to chunk, and serializes the order of concurrent write requests.
   file.WriteAt(data, offset)
   return nil
+}
+
+// Read filename from offset and fill the data into bytes.
+func (cs *ChunkServer) read(filename string, bytes []byte, offset int64) (int, error) {
+  file, err := os.Open(cs.path + "/" + filename)
+  if err != nil {
+    log.Fatal(err)
+  }
+  defer file.Close()
+  n, err := file.ReadAt(bytes, offset)
+  if err != nil {
+    switch err {
+    case io.EOF:
+      return n, nil
+    default:
+      return 0, err
+    }
+  } else {
+    return n, nil
+  }
 }
 
 // ChunkServer.reportChunkInfo

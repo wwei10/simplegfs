@@ -150,6 +150,24 @@ type PushDataArgs struct {
 type PushDataReply struct {
 }
 
+// Chunk server -> chunk server
+type ReplicateChunkArgs struct {
+  Handle uint64
+  Data []byte
+}
+
+type ReplicateChunkReply struct {
+}
+
+// Master -> chunk server
+type StartReplicateChunkArgs struct {
+  Handle uint64
+  Address string
+}
+
+type StartReplicateChunkReply struct {
+}
+
 // Helper functions
 func call(srv string, rpcname string,
           args interface{}, reply interface{}) error {
