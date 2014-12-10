@@ -42,17 +42,24 @@ type Lease struct {
 	Expiration time.Time // Lease expiration time.
 }
 
+type pendingReplication struct {
+	priority int      // priority of this replication task.
+	target   []string // Target server addresses.
+}
+
 // Chunk manager does the actual bookkeeping work for chunk servers.
 type ChunkManager struct {
 	lock           sync.RWMutex                   // Read write lock.
 	chunkHandle    uint64                         // Increment by 1 when a new chunk is created.
 	chunks         map[string](map[uint64]*Chunk) // (path, chunk index) -> chunk information (persistent)
-	handles        map[uint64]*PathIndex          // chunk handle -> (path, chunk index) (inverse of chunks)
-	locations      map[uint64]*ChunkInfo          // chunk handle -> chunk locations (in-memory)
+	handles        map[uint64]*PathIndex          // Chunk handle -> (path, chunk index) (inverse of chunks)
+	locations      map[uint64]*ChunkInfo          // Chunk handle -> chunk locations (in-memory)
 	chunkServers   []string                       // Alive chunk servers.
 	serverChunkMap map[string]*set.Set            // Server -> chunk mapping.
 	heartbeats     *cache.Cache                   // Cache of updated-heartbeat servers.
-	leases         map[uint64]*Lease              // chunk handle -> lease
+	leases         map[uint64]*Lease              // Chunk handle -> lease
+	pendingRepMap  map[uint64]*pendingReplication // Chunk handle -> pending replication request.
+	scheduledReps  []uint64                       // Scheduled replication.
 }
 
 func NewChunkManager(servers []string) *ChunkManager {
@@ -65,6 +72,8 @@ func NewChunkManager(servers []string) *ChunkManager {
 		chunkServers:   servers,
 		heartbeats:     cache.New(heartbeatExpiration, heartbeatGC),
 		serverChunkMap: make(map[string]*set.Set),
+		pendingRepMap:  make(map[uint64]*pendingReplication),
+		scheduledReps:  make([]uint64, 0),
 	}
 	return m
 }
@@ -173,32 +182,63 @@ func (m *ChunkManager) HandleHeartbeat(server string) {
 func (m *ChunkManager) HeartbeatCheck() {
 	log.Println("heartbeat check")
 	chunkServers := make([]string, 0)
+	badChunkServers := make([]string, 0)
 	for _, server := range m.chunkServers {
 		_, ok := m.heartbeats.Get(server)
 		if ok {
 			chunkServers = append(chunkServers, server)
 		} else {
-			set, ok := m.serverChunkMap[server]
-			if !ok {
-				continue
-			}
-			handles := set.Slice()
-			// Acquire lock first.
-			m.lock.Lock()
-			for _, v := range handles {
-				// Slice() returns interface{}, should first convert to uint64.
-				handle, ok := v.(uint64)
-				if ok {
-					// Remove handle from chunk handle -> location mapping.
-					m.locations[handle].Locations = removeElem(m.locations[handle].Locations, server)
-				}
-			}
-			m.lock.Unlock()
+			badChunkServers = append(badChunkServers, server)
 		}
 	}
 	m.lock.Lock()
-	defer m.lock.Unlock()
 	m.chunkServers = chunkServers
+	m.lock.Unlock()
+	for _, server := range badChunkServers {
+		set, ok := m.serverChunkMap[server]
+		if !ok {
+			continue
+		}
+		handles := set.Slice()
+		// Acquire lock first.
+		m.lock.Lock()
+		for _, v := range handles {
+			// Slice() returns interface{}, should first convert to uint64.
+			handle, ok := v.(uint64)
+			if ok {
+				// Remove handle from chunk handle -> location mapping.
+				locations := removeElem(m.locations[handle].Locations, server)
+				m.locations[handle].Locations = locations
+				// Make sure chunk handle actually means something.
+				_, ok = m.handles[handle]
+				if !ok {
+					continue
+				}
+				// Add a pending replication task for future re-replication.
+				m.addPendingReplication(handle, locations)
+			}
+		}
+		m.lock.Unlock()
+	}
+}
+
+// Pick one chunk that has the highest priority as the candidate to
+// for re-replication.
+func (m *ChunkManager) ScheduleReplication() {
+	if len(m.scheduledReps) > 1 {
+		return
+	}
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	highestSoFar := 0
+	highestHandle := uint64(0)
+	for handle, pending := range m.pendingRepMap {
+		if pending.priority > highestSoFar {
+			highestSoFar = pending.priority
+			highestHandle = handle
+		}
+	}
+	m.scheduledReps = append(m.scheduledReps, highestHandle)
 }
 
 // Release any resources it holds.
@@ -316,6 +356,13 @@ func (m *ChunkManager) addChunk(path string, chunkIndex uint64) (*ChunkInfo, err
 		ChunkHandle: handle,
 	}
 	locations := random(m.chunkServers, 3)
+	// Construct serverChunkMap to record blocks associated with a server.
+	for _, location := range locations {
+		if _, ok := m.serverChunkMap[location]; !ok {
+			m.serverChunkMap[location] = set.New()
+		}
+		m.serverChunkMap[location].Add(handle)
+	}
 	m.locations[handle] = &ChunkInfo{
 		Handle:    handle,
 		Locations: locations,
@@ -333,6 +380,9 @@ func (m *ChunkManager) addLease(handle uint64) error {
 	locations, ok := m.locations[handle]
 	if !ok {
 		return errors.New("chunk handle does not exist")
+	}
+	if find(m.scheduledReps, handle) {
+		return errors.New("scheduled replication")
 	}
 	lease, ok := m.leases[handle]
 	if !ok {
@@ -367,11 +417,81 @@ func (m *ChunkManager) checkLease(handle uint64) bool {
 	return true
 }
 
+func (m *ChunkManager) addPendingReplication(handle uint64, locations []string) {
+	pending, ok := m.pendingRepMap[handle]
+	if ok {
+		// If Pending replication already exists in the map,
+		// Add a target address to it.
+		newLocation, err := getNewLocation(m.chunkServers, locations, pending.target)
+		if err != nil {
+			return
+		}
+		pending.priority += 1
+		pending.target = insertElem(pending.target, newLocation)
+	} else {
+		newLocation, err := getNewLocation(m.chunkServers, locations, []string{})
+		if err != nil {
+			return
+		}
+		m.pendingRepMap[handle] = &pendingReplication{
+			priority: 1,
+			target:   []string{newLocation},
+		}
+	}
+}
+
+// Get a new location to place a chunk.
+func getNewLocation(servers, locations, targets []string) (string, error) {
+	// First get 3 random alive servers out.
+	candidates := random(servers, 3)
+	for _, candidate := range candidates {
+		notFound := true
+		for _, location := range locations {
+			// This check ensure that the new location is not the same
+			// as previous locations.
+			if candidate == location {
+				notFound = false
+				break
+			}
+		}
+		if !notFound {
+			continue
+		}
+		for _, target := range targets {
+			if candidate == target {
+				notFound = false
+				break
+			}
+		}
+		if notFound {
+			return candidate, nil
+		}
+	}
+	// Should not reach here.
+	return "", errors.New("new location not available")
+}
+
+// Return true if handles contain handle.
+func find(handles []uint64, handle uint64) bool {
+	for _, h := range handles {
+		if h == handle {
+			return true
+		}
+	}
+	return false
+}
+
 // Pick num elements randomly from array.
 func random(array []string, num int) []string {
-	ret := make([]string, num)
-	perm := rand.Perm(len(array))
-	for i := 0; i < num; i++ {
+	limit := 0
+	if num > len(array) {
+		limit = len(array)
+	} else {
+		limit = num
+	}
+	ret := make([]string, limit)
+	perm := rand.Perm(limit)
+	for i := 0; i < limit; i++ {
 		ret[i] = array[perm[i]]
 	}
 	return ret

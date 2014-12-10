@@ -80,13 +80,13 @@ func TestHeartbeat(t *testing.T) {
 	servers := []string{"1", "2", "3", "4", "5"}
 	m := NewChunkManager(servers)
 	defer m.Stop()
-	info, _ := m.AddChunk("a", 1)
-	handle := info.Handle
-	for _, location := range info.Locations {
-		m.SetChunkLocation(handle, location)
-	}
+	// Add a new chunk to the system.
+	m.AddChunk("a", 1)
 	time.Sleep(time.Second)
 	m.HeartbeatCheck()
+
+	// No servers should be alive because master doesn't receive
+	// any heartbeats
 	if len(m.chunkServers) != 0 {
 		t.Error("Servers that are alive:", m.chunkServers)
 	}
@@ -101,4 +101,44 @@ func TestHeartbeat(t *testing.T) {
 		t.Error("Servers that are alive:", m.chunkServers)
 	}
 	fmt.Println("Servers that are alive:", m.chunkServers)
+}
+
+func TestDetectUnderReplication(t *testing.T) {
+	fmt.Println("\n##### ##### BEGIN ##### #####")
+	heartbeatGC = time.Second * 2
+	heartbeatExpiration = time.Second
+	servers := []string{"1", "2", "3", "4", "5"}
+	m := NewChunkManager(servers)
+	defer m.Stop()
+	info, _ := m.addChunk("a", 1)
+	handle := info.Handle
+	m.SetChunkLocation(handle, "1")
+	m.SetChunkLocation(handle, "2")
+	m.SetChunkLocation(handle, "3")
+	time.Sleep(time.Second)
+	// 1, 4, 5 should be alive.
+	m.HandleHeartbeat("1")
+	m.HandleHeartbeat("4")
+	m.HandleHeartbeat("5")
+	m.HeartbeatCheck() // Check who is dead who is alive.
+	fmt.Println("servers that are alive:", m.chunkServers)
+	m.ScheduleReplication() // Schedule a re-replication
+	if len(m.scheduledReps) != 1 {
+		t.Error("should schedule a re-replication")
+	}
+	if m.scheduledReps[0] != handle {
+		t.Error("should schedule a re-replication for", handle)
+	}
+	pending, ok := m.pendingRepMap[handle]
+	if !ok {
+		t.Error("should be able to find pending replication in pendingRepMap")
+		t.FailNow()
+	}
+	if pending.priority != 2 {
+		t.Error("priority should be 2")
+	}
+	fmt.Println("locations:", info.Locations)
+	fmt.Println("pending replications:", pending)
+	fmt.Println("scheduled replications:", m.scheduledReps)
+	fmt.Println("##### ##### END ##### #####\n")
 }
