@@ -141,11 +141,15 @@ func (m *ChunkManager) SetChunkLocation(handle uint64, address string) error {
 			Locations: make([]string, 0),
 		}
 		m.locations[handle] = info
-		m.serverChunkMap[address].Add(handle)
 	}
 	// TODO: Add address into the locations array. Need to ensure the there are no
 	// duplicates in the array.
 	info.Locations = insertElem(info.Locations, address)
+	// Add inverse mapping from server address to chunk handle.
+	if _, ok := m.serverChunkMap[address]; !ok {
+		m.serverChunkMap[address] = set.New()
+	}
+	m.serverChunkMap[address].Add(handle)
 	return nil
 }
 
@@ -159,7 +163,6 @@ func (m *ChunkManager) HandleHeartbeat(server string) {
 	if _, ok := m.heartbeats.Get(server); !ok {
 		m.lock.Lock()
 		m.chunkServers = insertElem(m.chunkServers, server)
-		fmt.Println(m.chunkServers)
 		m.lock.Unlock()
 	}
 	m.heartbeats.Set(server, true)
@@ -171,10 +174,8 @@ func (m *ChunkManager) HeartbeatCheck() {
 	log.Println("heartbeat check")
 	chunkServers := make([]string, 0)
 	for _, server := range m.chunkServers {
-		fmt.Println("server", server)
 		_, ok := m.heartbeats.Get(server)
 		if ok {
-			fmt.Println("exist")
 			chunkServers = append(chunkServers, server)
 		} else {
 			set, ok := m.serverChunkMap[server]
@@ -182,7 +183,6 @@ func (m *ChunkManager) HeartbeatCheck() {
 				continue
 			}
 			handles := set.Slice()
-			fmt.Println("slice", handles)
 			// Acquire lock first.
 			m.lock.Lock()
 			for _, v := range handles {

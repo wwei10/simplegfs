@@ -80,6 +80,11 @@ func TestHeartbeat(t *testing.T) {
 	servers := []string{"1", "2", "3", "4", "5"}
 	m := NewChunkManager(servers)
 	defer m.Stop()
+	info, _ := m.AddChunk("a", 1)
+	handle := info.Handle
+	for _, location := range info.Locations {
+		m.SetChunkLocation(handle, location)
+	}
 	time.Sleep(time.Second)
 	m.HeartbeatCheck()
 	if len(m.chunkServers) != 0 {
