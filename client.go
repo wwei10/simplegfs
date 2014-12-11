@@ -3,9 +3,9 @@ package simplegfs
 import (
   "fmt"
   "github.com/wweiw/simplegfs/pkg/cache"
-  sgfsErr "github.com/wweiw/simplegfs/error"
-  "log"
+  log "github.com/Sirupsen/logrus"
   "time"
+  sgfsErr "github.com/wweiw/simplegfs/error"
 )
 
 type Client struct {
@@ -201,7 +201,7 @@ func (c *Client) read(path string, chunkIndex, start uint64,
                       bytes []byte) (n int, err error) {
   // Get chunkhandle and locations
   length := uint64(len(bytes))
-  fmt.Println(c.clientId, "read", path, chunkIndex, start, len(bytes))
+  log.Debugln(c.clientId, "read", path, chunkIndex, start, len(bytes))
   chunkHandle, chunkLocations, err := c.findChunkLocations(path, chunkIndex)
   if err != nil {
     // TODO: Error handling. Define error code or something.
@@ -381,6 +381,6 @@ func (c *Client) getFileLength(path string) (int64, error) {
   args := path
   reply := new(int64)
   ok := call(c.masterAddr, "MasterServer.GetFileLength", args, reply)
-  fmt.Println(path, "file length:", *reply)
+  log.Debugln(path, "file length:", *reply)
   return *reply, ok
 }

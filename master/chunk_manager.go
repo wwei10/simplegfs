@@ -6,7 +6,7 @@ import (
   "encoding/gob"
   "fmt"
   "io/ioutil"
-  "log"
+  log "github.com/Sirupsen/logrus"
   "math/rand"
   sgfsErr "github.com/wweiw/simplegfs/error"
   "sync"
@@ -157,17 +157,17 @@ func (m *ChunkManager) getChunkInfo(path string, chunkIndex uint64) (*ChunkInfo,
   info := &ChunkInfo{}
   val, ok := m.chunks[path]
   if !ok {
-    fmt.Println("File not found.")
+    log.Debugln("File not found.")
     return info, errors.New("File not found.")
   }
   chunk, ok := val[chunkIndex]
   if !ok {
-    fmt.Println("Chunk index not found.")
+    log.Debugln("Chunk index not found.")
     return info, errors.New("Chunk index not found.")
   }
   chunkInfo, ok := m.locations[chunk.ChunkHandle]
   if !ok {
-    fmt.Println("Locations not found.")
+    log.Debugln("Locations not found.")
     return info, errors.New("Locations not available.")
   }
   return chunkInfo, nil
@@ -249,7 +249,7 @@ func (m *ChunkManager) addChunk(path string, chunkIndex uint64) (*ChunkInfo, err
   }
   _, ok = m.chunks[path][chunkIndex]
   if ok {
-    fmt.Println("Chunk index already exists.")
+    log.Debugln("Chunk index already exists.")
     return info, sgfsErr.ErrChunkExist
   }
   handle := m.chunkHandle

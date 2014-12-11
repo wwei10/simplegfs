@@ -4,7 +4,7 @@ import (
   "bufio"
   "fmt"
   "github.com/wweiw/simplegfs/pkg/testutil"
-  "log"
+  log "github.com/Sirupsen/logrus"
   "time"
   "os"
   "testing"
@@ -40,6 +40,7 @@ const testData2 = "Perfection is reached not when there is nothing left" +
 // param  - none
 // return - none
 func testStart() {
+  log.SetLevel(log.WarnLevel)
   pc, _, _, ok := runtime.Caller(1)
   if ok {
     test := runtime.FuncForPC(pc)
