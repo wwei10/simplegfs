@@ -5,10 +5,11 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	log "github.com/Sirupsen/logrus"
+	sgfsErr "github.com/wweiw/simplegfs/error"
 	"github.com/wweiw/simplegfs/pkg/cache"
 	"github.com/wweiw/simplegfs/pkg/set"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -225,7 +226,7 @@ func (m *ChunkManager) HeartbeatCheck() {
 // Pick one chunk that has the highest priority as the candidate to
 // for re-replication.
 func (m *ChunkManager) ScheduleReplication() {
-  // Ensure there are at most m.scheduleReps is 1.
+	// Ensure there are at most m.scheduleReps is 1.
 	if len(m.scheduledReps) > 1 {
 		return
 	}
@@ -245,17 +246,17 @@ func (m *ChunkManager) ScheduleReplication() {
 // Start replication.
 // Returns handle, location, target location
 func (m *ChunkManager) StartReplication() (uint64, string, []string, error) {
-  handle := m.scheduledReps[0]
-  if len(m.locations[handle].Locations) == 0 {
-    return 0, "", []string{}, errors.New("no available locaiton")
-  }
-  location := m.locations[handle].Locations[0]
-  return handle, location, m.pendingRepMap[handle].target, nil
+	handle := m.scheduledReps[0]
+	if len(m.locations[handle].Locations) == 0 {
+		return 0, "", []string{}, errors.New("no available locaiton")
+	}
+	location := m.locations[handle].Locations[0]
+	return handle, location, m.pendingRepMap[handle].target, nil
 }
 
 // Clear replication.
 func (m *ChunkManager) ClearReplication() {
-  m.scheduledReps = make([]uint64, 0)
+	m.scheduledReps = make([]uint64, 0)
 }
 
 // Release any resources it holds.
@@ -272,17 +273,17 @@ func (m *ChunkManager) getChunkInfo(path string, chunkIndex uint64) (*ChunkInfo,
 	info := &ChunkInfo{}
 	val, ok := m.chunks[path]
 	if !ok {
-		fmt.Println("File not found.")
+		log.Debugln("File not found.")
 		return info, errors.New("File not found.")
 	}
 	chunk, ok := val[chunkIndex]
 	if !ok {
-		fmt.Println("Chunk index not found.")
+		log.Debugln("Chunk index not found.")
 		return info, errors.New("Chunk index not found.")
 	}
 	chunkInfo, ok := m.locations[chunk.ChunkHandle]
 	if !ok {
-		fmt.Println("Locations not found.")
+		log.Debugln("Locations not found.")
 		return info, errors.New("Locations not available.")
 	}
 	return chunkInfo, nil
@@ -364,8 +365,8 @@ func (m *ChunkManager) addChunk(path string, chunkIndex uint64) (*ChunkInfo, err
 	}
 	_, ok = m.chunks[path][chunkIndex]
 	if ok {
-		fmt.Println("Chunk index already exists.")
-		return info, errors.New("Chunk index already exists.")
+		log.Debugln("Chunk index already exists.")
+		return info, sgfsErr.ErrChunkExist
 	}
 	handle := m.chunkHandle
 	m.chunkHandle++

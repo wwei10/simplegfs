@@ -1,22 +1,46 @@
 package simplegfs
 
 import (
+  "bufio"
   "fmt"
   "github.com/wweiw/simplegfs/pkg/testutil"
+  log "github.com/Sirupsen/logrus"
   "time"
   "os"
-  "bufio"
   "testing"
   "strings"
   "strconv"
+  "sync"
   "runtime"
 )
+
+// Global test config.
+const MasterAddr = ":4444"
+const ck1Addr = ":5555"
+const ck2Addr = ":5556"
+const ck3Addr = ":5557"
+const ck4Addr = ":5558"
+const ck5Addr = ":5559"
+const ck6Addr = ":5560"
+const ck1Path = "/var/tmp/ck1"
+const ck2Path = "/var/tmp/ck2"
+const ck3Path = "/var/tmp/ck3"
+const ck4Path = "/var/tmp/ck4"
+const ck5Path = "/var/tmp/ck5"
+const ck6Path = "/var/tmp/ck6"
+const testFile1 = "/a"
+const testFile2 = "/b"
+const testFile3 = "/c"
+const testData1 = "The quick brown fox jumps over the lazy dog.\n"
+const testData2 = "Perfection is reached not when there is nothing left" +
+                  " to add, but when there is nothing left to take away.\n"
 
 // Print a logging message indicatin the test has started.
 //
 // param  - none
 // return - none
 func testStart() {
+  log.SetLevel(log.WarnLevel)
   pc, _, _, ok := runtime.Caller(1)
   if ok {
     test := runtime.FuncForPC(pc)
@@ -46,6 +70,78 @@ func testEnd() {
   }
   fmt.Println("----- Finish\tUnknown")
   fmt.Println()
+}
+
+// Construct a master server instance given master's address
+// params - addr: Master server's address.
+//          ckAddrs: An array of chunk server addresses.
+// return - A pointer to a MasterServer instance.
+func initMaster(addr string, ckAddrs []string) *MasterServer{
+  ms := StartMasterServer(addr, ckAddrs)
+  time.Sleep(HeartbeatInterval)
+  return ms
+}
+
+// Kills the master server instance
+// params - ms: A pointer to a MasterServer instance.
+// return - None.
+func killMaster(ms *MasterServer) {
+  ms.Kill()
+}
+
+// Construct an array of chunk server instances given the master's address, an
+// array of chunk server addresses, and an array of chunk server paths.
+// params - msAddr: Master server's address.
+//          ckAddrs: An array of chunk server addresses.
+//          ckPaths: An array of chunk server paths.
+// return - An array of ChunkServer pointers
+func initChunkServers(msAddr string, ckAddrs []string,
+                      ckPaths []string) []*ChunkServer{
+  // Error checking
+  if len(ckAddrs) != len(ckPaths) {
+    log.Fatal("Must provide same amount of chunk server addresses and " +
+              "chunk server paths")
+  }
+
+  // Return value
+  ckServers := make([]*ChunkServer, len(ckAddrs))
+
+  for i, ckAddr := range ckAddrs {
+    os.Mkdir(ckPaths[i], FilePermRWX)
+    ckServers[i] = StartChunkServer(msAddr, ckAddr, ckPaths[i])
+  }
+
+  // Sleep
+  time.Sleep(2 * HeartbeatInterval)
+  return ckServers
+}
+
+// Kills an array of ChunkServer instances, and removes chunk server paths.
+// params - ckAddrs: An array of pointer to chunk server instances.
+//          ckPaths: An array of chunk server paths.
+// return - None.
+func killChunkServers(cks []*ChunkServer, ckPaths []string) {
+  for _, ck := range cks {
+    ck.Kill()
+  }
+  for _, ckPath := range ckPaths {
+    os.RemoveAll(ckPath)
+  }
+}
+
+// Construct an array of Client instances given master's address.
+// params - msAddr: Master server's address.
+//          n: Number of Client instances.
+// return - An array of pointers of Client instances.
+func initClients(msAddr string, n int) []*Client {
+  cs := make([]*Client, n)
+  for i, _ := range cs {
+    cs[i] = NewClient(msAddr)
+  }
+
+  // Sleep
+  time.Sleep(2 * HeartbeatInterval)
+  return cs
 }
 
 func TestNewClientId(t *testing.T) {
@@ -383,3 +479,124 @@ func TestChunkServerLease(t *testing.T) {
 
   testEnd()
 }
+
+func TestAppend(t *testing.T) {
+  testStart()
+
+  // Local test config.
+  numClients := 5
+  localTestData1 := strings.Repeat(testData1, 20)
+  localTestData2 := strings.Repeat(testData2, 20)
+  ckAddrs := [...]string{ck1Addr, ck2Addr, ck3Addr}
+  ckPaths := [...]string{ck1Path, ck2Path, ck3Path}
+
+  // Init master server, chunk servers, and clients.
+  ms := initMaster(MasterAddr, ckAddrs[:])
+  cks := initChunkServers(MasterAddr, ckAddrs[:], ckPaths[:])
+  cs := initClients(MasterAddr, numClients)
+
+  // Create a file to write to.
+  if ok, err := cs[0].Create(testFile1); !ok {
+    log.Fatal("Failed to create testFile")
+    t.Error(err)
+  }
+
+  // Issue concurrent appends.
+  var wg sync.WaitGroup
+  for _, c := range cs {
+    wg.Add(1)
+    fmt.Println("Client ID", c.clientId)
+    var data []byte
+    if c.clientId % 2 == 0 {
+      data = []byte(localTestData1)
+    } else {
+      data = []byte(localTestData2)
+    }
+    go func(c *Client, data []byte) {
+      fmt.Println("Client ID", c.clientId)
+      defer wg.Done()
+      offset, err := c.Append(testFile1, data)
+      if err != nil {
+        t.Error(err)
+      }
+      fmt.Println("Client", c.clientId, "appended to offset", offset)
+      time.Sleep(2 * time.Second)
+      readBuf := make([]byte, len(data))
+      _, err = c.Read(testFile1, offset, readBuf);
+      if err != nil {
+        t.Error(err)
+      }
+      if string(readBuf) != string(data) {
+        t.Error("Read does not match append.")
+      }
+      fmt.Println("Client", c.clientId, "read", string(readBuf))
+    }(c, data)
+  }
+
+  // Shut down.
+  wg.Wait()
+  killChunkServers(cks, ckPaths[:])
+  killMaster(ms)
+  time.Sleep(time.Second)
+
+  testEnd()
+}
+
+// TestAppend2 tests record append for when appending data exceeds more then
+// one chunk.
+func TestAppend2(t *testing.T) {
+  testStart()
+
+  // Local test config.
+  numClients := 5
+  localTestData1 := strings.Repeat(testData1, 298261)
+  ckAddrs := [...]string{ck1Addr, ck2Addr, ck3Addr}
+  ckPaths := [...]string{ck1Path, ck2Path, ck3Path}
+
+  // Init master server, chunk servers, and clients.
+  ms := initMaster(MasterAddr, ckAddrs[:])
+  cks := initChunkServers(MasterAddr, ckAddrs[:], ckPaths[:])
+  cs := initClients(MasterAddr, numClients)
+
+  // Create a file to write to.
+  if ok, err := cs[0].Create(testFile1); !ok {
+    log.Fatal("Failed to create testFile")
+    t.Error(err)
+  }
+
+  // Issue concurrent appends.
+  var wg sync.WaitGroup
+  for _, c := range cs {
+    wg.Add(1)
+    fmt.Println("Client ID", c.clientId)
+    go func(c *Client) {
+      fmt.Println("Client ID", c.clientId)
+      defer wg.Done()
+      offset, err := c.Append(testFile1, []byte(localTestData1))
+      if err != nil {
+        t.Error(err)
+        return
+      }
+      fmt.Println("Client", c.clientId, "appended to offset", offset)
+      time.Sleep(2 * time.Second)
+      readBuf := make([]byte, len(localTestData1))
+      _, err = c.Read(testFile1, offset, readBuf);
+      if err != nil {
+        t.Error(err)
+      }
+      if string(readBuf) != localTestData1 {
+        t.Error("Read does not match append.")
+        return
+      }
+    }(c)
+  }
+
+  // Shut down.
+  wg.Wait()
+  killChunkServers(cks, ckPaths[:])
+  killMaster(ms)
+  time.Sleep(time.Second)
+
+  testEnd()
+}
+

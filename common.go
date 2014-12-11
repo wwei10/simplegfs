@@ -1,7 +1,6 @@
 package simplegfs
 
 import (
-  "fmt"
   "net/rpc"
   "time"
 )
@@ -12,15 +11,12 @@ const ChunkSize = 64 * (1 << 20)
 const HeartbeatInterval = 100 * time.Millisecond
 const CacheTimeout = time.Minute
 const CacheGCInterval = time.Minute
-
-// Client lease related const
-const ClockDrift = 5 * time.Millisecond
-const SoftLeaseTime = 1 * time.Second
-const HardLeaseTime = 30 * time.Second
-const ExtensionRequestInterval = 500 * time.Millisecond
+const AppendSize = ChunkSize / 4
 
 // ChunkServer lease related const
 const LeaseTimeout = 60 * time.Second
+const SoftLeaseTime = 1 * time.Second
+const HardLeaseTime = 30 * time.Second
 
 // Useful data structures
 type ChunkInfo struct {
@@ -126,6 +122,7 @@ type WriteArgs struct {
   Offset uint64
   Path string
   ChunkLocations []string
+  IsAppend bool
 }
 
 type WriteReply struct {
@@ -168,6 +165,18 @@ type StartReplicateChunkArgs struct {
 type StartReplicateChunkReply struct {
 }
 
+type AppendArgs struct {
+  DataId DataId
+  ChunkHandle uint64
+  ChunkIndex uint64
+  Path string
+  ChunkLocations []string
+}
+
+type AppendReply struct {
+  Offset uint64
+}
+
 // Helper functions
 func call(srv string, rpcname string,
           args interface{}, reply interface{}) error {
@@ -179,7 +188,6 @@ func call(srv string, rpcname string,
 
   err := c.Call(rpcname, args, reply)
   if err != nil {
-    fmt.Println("RPC call failed:", err)
     return err
   }
 

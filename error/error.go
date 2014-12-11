@@ -15,9 +15,14 @@ var (
   ErrIsNotFile = errors.New("is not file")
   ErrDirNotEmpty = errors.New("directory is not empty")
 
-
   // Chunk associated error handling.
-  ErrChunkExist = errors.New("chunk already exists")
+  ErrChunkExist = errors.New("Chunk already exists")
+  ErrAppendLimitExceeded = errors.New("Append data size limit exceeded")
+  ErrDataNotInMem = errors.New("Target data is not in memory")
+  ErrNotEnoughSpace = errors.New("Append to chunk with not enough space")
+
+  // Client erro handling.
+  ErrLeaseHolderNotFound = errors.New("Cannot find lease holder")
 )
 
 type PathError struct {

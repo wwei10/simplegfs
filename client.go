@@ -3,10 +3,9 @@ package simplegfs
 import (
   "fmt"
   "github.com/wweiw/simplegfs/pkg/cache"
-  sgfsErr "github.com/wweiw/simplegfs/error"
-  "log"
+  log "github.com/Sirupsen/logrus"
   "time"
-  "sync"
+  sgfsErr "github.com/wweiw/simplegfs/error"
 )
 
 type Client struct {
@@ -14,18 +13,6 @@ type Client struct {
   clientId uint64
   locationCache *cache.Cache
   leaseHolderCache *cache.Cache
-  file2Lease map[string]lease
-
-  // Stores file name of the files that the client is trying to request lease
-  // extension on.
-  pendingExtension []string
-  // Lease lock for pendingextension and file2Lease
-  leaseMutex sync.RWMutex
-}
-
-type lease struct {
-  softLimit time.Time
-  hardLimit time.Time
 }
 
 func NewClient(masterAddr string) *Client {
@@ -33,7 +20,6 @@ func NewClient(masterAddr string) *Client {
     masterAddr: masterAddr,
     locationCache: cache.New(CacheTimeout, CacheGCInterval),
     leaseHolderCache: cache.New(CacheTimeout, CacheGCInterval),
-    file2Lease: make(map[string]lease),
   }
   reply := &NewClientIdReply{}
   call(masterAddr, "MasterServer.NewClientId", struct{}{}, reply)
@@ -70,6 +56,76 @@ func (c *Client) Delete(path string) (bool, error) {
   reply := new(bool)
   err := call(c.masterAddr, "MasterServer.Delete", path, reply)
   return *reply, err
+}
+
+// Append writes data to an offset chosen by the primary chunk server.
+// Data is only appended if its size if less then AppendSize, which is one
+// fourth of ChunkSize.
+// Returns (offset chosen by primary, nil) if success, appropriate
+// error otherwise.
+// The caller must check return error before using the offset.
+func (c *Client) Append(path string, data []byte) (uint64, error) {
+  // First check if the size is valid.
+  if len(data) > AppendSize {
+    log.Println("ERROR: Data size exceeds append limit.")
+    return 0, sgfsErr.ErrAppendLimitExceeded
+  }
+
+  // To calculate chunkIndex we must get the length.
+  fileLength, err := c.getFileLength(path)
+  if err != nil {
+    log.Println("ERROR: Get file length failed.")
+    return 0, err
+  }
+  chunkIndex := uint64(fileLength /  ChunkSize)
+
+  // Get chunkHandle and chunkLocations
+  chunkHandle, chunkLocations, err := c.guaranteeChunkLocations(path, chunkIndex)
+  if err != nil {
+    return 0, err
+  }
+
+  // Construct dataId with clientId and current timestamp.
+  dataId := DataId{
+    ClientId: c.clientId,
+    Timestamp: time.Now(),
+  }
+
+  // Push data to all replicas' memory.
+  err = c.pushData(chunkLocations, dataId, data)
+  if err != nil {
+    return 0, err
+  }
+
+  // Once data is pushed to all replicas, send append request to the primary.
+  primary := c.findLeaseHolder(chunkHandle)
+  if primary == "" {
+    return 0, sgfsErr.ErrLeaseHolderNotFound
+  }
+
+  // Construct Append RPC arguments and replies.
+  appendArgs := AppendArgs {
+    DataId: dataId,
+    ChunkHandle: chunkHandle,
+    ChunkIndex: chunkIndex,
+    Path: path,
+    ChunkLocations: chunkLocations,
+  }
+  appendReply := new(AppendReply)
+
+  // Send Append request.
+  err = call(primary, "ChunkServer.Append", appendArgs, appendReply)
+  if err != nil {
+    // If not enough space on the target chunk for append, retry append
+    // request on a new chunk.
+    if err.Error() == sgfsErr.ErrNotEnoughSpace.Error() {
+      c.Append(path, data)
+    } else {
+      return 0, err
+    }
+  }
+
+  return appendReply.Offset, nil
 }
 
 // Write file at a specific offset
@@ -145,7 +201,7 @@ func (c *Client) read(path string, chunkIndex, start uint64,
                       bytes []byte) (n int, err error) {
   // Get chunkhandle and locations
   length := uint64(len(bytes))
-  fmt.Println(c.clientId, "read", path, chunkIndex, start, len(bytes))
+  log.Debugln(c.clientId, "read", path, chunkIndex, start, len(bytes))
   chunkHandle, chunkLocations, err := c.findChunkLocations(path, chunkIndex)
   if err != nil {
     // TODO: Error handling. Define error code or something.
@@ -164,32 +220,58 @@ func (c *Client) read(path string, chunkIndex, start uint64,
   return resp.Length, nil // TODO: Error handling
 }
 
+// The pushData function pushes data to all replica's memory through RPC.
+func (c *Client) pushData(chunkLocations []string, dataId DataId, data []byte) error {
+  // Push data to each replica's memory.
+  for _, cs := range chunkLocations {
+    pushDataReply := new(PushDataReply)
+    if err := call(cs, "ChunkServer.PushData", &PushDataArgs{dataId, data},
+                   pushDataReply); err != nil {
+      return err
+    }
+  }
+  return nil
+}
+
+// The guaranteeChunkLocations takes in a path name and a chunkIndex and
+// guarantees to return a chunkHandle and chunkLocations unless some
+// unexpected error occurs and the operation is not retriable. It does this
+// by first looking for chunk locations normally, if not found, tries to
+// add the chunk to master server.
+func (c *Client) guaranteeChunkLocations(path string, chunkIndex uint64) (uint64, []string, error) {
+  // Find locations
+  chunkHandle, chunkLocations, err := c.findChunkLocations(path, chunkIndex)
+
+  // If cannot find chunk, add the chunk.
+  if err != nil {
+    chunkHandle, chunkLocations, err = c.addChunk(path, chunkIndex)
+  }
+
+  // Other client might have added the chunk simultaneously,
+  // must check error code. If it already exists, find the location again.
+  if err != nil && err.Error() == sgfsErr.ErrChunkExist.Error() {
+    chunkHandle, chunkLocations, err = c.findChunkLocations(path, chunkIndex)
+  }
+
+  // Either some other err occurred during add Chunk, or the second
+  // findChunkLocation fails.
+  if err != nil {
+    return chunkHandle, chunkLocations, err
+  }
+
+  // If no unexpected error has occurred.
+  return chunkHandle, chunkLocations, nil
+}
+
 func (c *Client) write(path string, chunkIndex, start, end uint64,
                        bytes []byte) bool {
   // Get chunkhandle and locations.
   // For auditing
   fmt.Println(c.clientId, "write", path, chunkIndex, start, end, string(bytes))
 
-  chunkHandle, chunkLocations, err := c.findChunkLocations(path, chunkIndex)
-  // If cannot find chunk, add the chunk.
+  // Get chunkHandle and chunkLocations
+  chunkHandle, chunkLocations, err := c.guaranteeChunkLocations(path, chunkIndex)
   if err != nil {
-    chunkHandle, chunkLocations, err = c.addChunk(path, chunkIndex)
-  }
-  // Other client might have added the chunk simultaneously,
-  // must check error code. If it already exists, find the location again.
-  if err != nil && err == sgfsErr.ErrChunkExist {
-    chunkHandle, chunkLocations, err = c.findChunkLocations(path, chunkIndex)
-  }
-  // Either some other err occurred during add Chunk, or the second
-  // findChunkLocation fails.
-  if err != nil {
-    return false
-  }
-
-  // Get the primary location.
-  primary := c.findLeaseHolder(chunkHandle)
-  if primary == "" {
-    log.Println("Primary chunk server not found.")
     return false
   }
 
@@ -198,21 +280,21 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
     ClientId: c.clientId,
     Timestamp: time.Now(),
   }
-  pushDataArgs := PushDataArgs{
-    DataId: dataId,
-    Data: bytes,
-  }
 
-  // First push data to each replicas' memory.
-  for _, cs := range chunkLocations {
-    pushDataReply := new(PushDataReply)
-    if err := call(cs, "ChunkServer.PushData", pushDataArgs,
-                   pushDataReply); err != nil {
-      return false;
-    }
+  // Push data to all replicas' memory.
+  err = c.pushData(chunkLocations, dataId, bytes)
+  if err != nil {
+    log.Println("Data did not push to all replicas.")
+    return false
   }
 
   // Once data is pushed to all replicas, send write request to the primary.
+  primary := c.findLeaseHolder(chunkHandle)
+  if primary == "" {
+    log.Println("Primary chunk server not found.")
+    return false
+  }
+
   writeArgs := WriteArgs{
     DataId: dataId,
     Path: path,
@@ -299,6 +381,6 @@ func (c *Client) getFileLength(path string) (int64, error) {
   args := path
   reply := new(int64)
   ok := call(c.masterAddr, "MasterServer.GetFileLength", args, reply)
-  fmt.Println(path, "file length:", *reply)
+  log.Debugln(path, "file length:", *reply)
   return *reply, ok
 }
