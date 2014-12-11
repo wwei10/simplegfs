@@ -336,7 +336,7 @@ func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
 }
 
 // Helper functions
-func reportChunk(cs *ChunkServer, info ChunkInfo) {
+func reportChunk(cs *ChunkServer, info *ChunkInfo) {
   args := ReportChunkArgs{
     ServerAddress: cs.me,
     ChunkHandle: info.ChunkHandle,
@@ -452,12 +452,18 @@ func decodeMap(b *bytes.Buffer) map[uint64]uint64 {
 // with the master.
 // Note: ChunkServer.mutex is held by ChunkServer.Write.
 //
-// params - chunkhandle: Unique ID for the chunk to be request extension on.
+// params - chunkHandle: Unique ID for the chunk to be request extension on.
 // return - None.
-func (cs *ChunkServer) addChunkExtensionRequest(chunkhandle uint64) {
+func (cs *ChunkServer) addChunkExtensionRequest(chunkHandle uint64) {
   cs.pendingExtensionsLock.Lock()
   defer cs.pendingExtensionsLock.Unlock()
-  cs.pendingExtensions = append(cs.pendingExtensions, chunkhandle)
+  // Do not add duplicate requests.
+  for _, r := range cs.pendingExtensions {
+    if r == chunkHandle {
+      return
+    }
+  }
+  cs.pendingExtensions = append(cs.pendingExtensions, chunkHandle)
 }
 
 // ChunkServer.applyWrite
@@ -506,7 +512,7 @@ func (cs *ChunkServer) reportChunkInfo(chunkhandle, chunkindex uint64,
   chunkInfo := cs.chunks[chunkhandle]
   if offset + length > chunkInfo.Length {
     chunkInfo.Length = offset + length
-    reportChunk(cs, *chunkInfo)
+    reportChunk(cs, chunkInfo)
   }
 }
 

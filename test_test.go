@@ -485,6 +485,7 @@ func TestAppend(t *testing.T) {
   // Local test config.
   numClients := 5
   localTestData1 := strings.Repeat(testData1, 20)
+  localTestData2 := strings.Repeat(testData2, 20)
   ckAddrs := [...]string{ck1Addr, ck2Addr, ck3Addr}
   ckPaths := [...]string{ck1Path, ck2Path, ck3Path}
 
@@ -504,25 +505,31 @@ func TestAppend(t *testing.T) {
   for _, c := range cs {
     wg.Add(1)
     fmt.Println("Client ID", c.clientId)
-    go func(c *Client) {
+    var data []byte
+    if c.clientId % 2 == 0 {
+      data = []byte(localTestData1)
+    } else {
+      data = []byte(localTestData2)
+    }
+    go func(c *Client, data []byte) {
       fmt.Println("Client ID", c.clientId)
       defer wg.Done()
-      offset, err := c.Append(testFile1, []byte(localTestData1))
+      offset, err := c.Append(testFile1, data)
       if err != nil {
         t.Error(err)
       }
       fmt.Println("Client", c.clientId, "appended to offset", offset)
       time.Sleep(2 * time.Second)
-      readBuf := make([]byte, len(localTestData1))
+      readBuf := make([]byte, len(data))
       _, err = c.Read(testFile1, offset, readBuf);
       if err != nil {
         t.Error(err)
       }
-      if string(readBuf) != localTestData1 {
+      if string(readBuf) != string(data) {
         t.Error("Read does not match append.")
       }
       fmt.Println("Client", c.clientId, "read", string(readBuf))
-    }(c)
+    }(c, data)
   }
 
   // Shut down.

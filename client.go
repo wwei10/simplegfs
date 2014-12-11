@@ -59,8 +59,8 @@ func (c *Client) Delete(path string) (bool, error) {
 }
 
 // Append writes data to an offset chosen by the primary chunk server.
-// Data is only appened if its size if less then AppendSize, which is one
-// forth of ChunkSize.
+// Data is only appended if its size if less then AppendSize, which is one
+// fourth of ChunkSize.
 // Returns (offset chosen by primary, nil) if success, appropriate
 // error otherwise.
 // The caller must check return error before using the offset.
@@ -235,7 +235,7 @@ func (c *Client) pushData(chunkLocations []string, dataId DataId, data []byte) e
 
 // The guaranteeChunkLocations takes in a path name and a chunkIndex and
 // guarantees to return a chunkHandle and chunkLocations unless some
-// unexpected error occurs and the operation is no retriable. It does this
+// unexpected error occurs and the operation is not retriable. It does this
 // by first looking for chunk locations normally, if not found, tries to
 // add the chunk to master server.
 func (c *Client) guaranteeChunkLocations(path string, chunkIndex uint64) (uint64, []string, error) {
