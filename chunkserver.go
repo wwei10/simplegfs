@@ -68,7 +68,7 @@ type ChunkServer struct {
 func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   log.Debugln(cs.me, "ChunkServer: Write RPC.")
   cs.mutex.Lock()
-  defer cs.mutex.Unlock()
+  log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Acquired")
 
   // Extract/define arguments.
   dataId := args.DataId
@@ -76,6 +76,8 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   off := int64(args.Offset)
   data, ok := cs.data[dataId]
   if !ok {
+    log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Released.")
+    cs.mutex.Unlock()
     return errors.New("ChunkServer.Write: requested data is not in memory")
   }
   length := int64(len(data))
@@ -83,6 +85,8 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
 
   // Apply write request to local state.
   if err := cs.applyWrite(filename, data, off); err != nil {
+    log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Released.")
+    cs.mutex.Unlock()
     return err
   } else {
     delete(cs.data, dataId)
@@ -91,14 +95,20 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   // Update chunkserver metadata.
   cs.reportChunkInfo(chunkhandle, args.ChunkIndex, args.Path, length, off)
 
+  cs.mutex.Unlock()
   // Apply the write to all secondary replicas.
   if err := cs.applyToSecondary(args, reply); err != nil {
+    log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Released.")
+    cs.mutex.Unlock()
     return err
   }
+  cs.mutex.Lock()
 
   // Since we are still writing to the chunk, we must continue request
   // lease extensions on the chunk.
   cs.addChunkExtensionRequest(chunkhandle)
+  log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Released.")
+  cs.mutex.Unlock()
   return nil
 }
 
