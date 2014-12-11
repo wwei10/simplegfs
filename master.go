@@ -7,6 +7,7 @@ import (
   "net"
   "net/rpc"
   "os" // For os file operations
+  sgfsErr "github.com/wweiw/simplegfs/error"
   "strconv" // For string conversion to/from basic data types
   "strings" // For parsing serverMeta
   "sync"
@@ -127,6 +128,9 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
                                       reply *FindLocationsReply) error {
   log.Debugln("Find Locations RPC")
   path := args.Path
+  if !ms.namespaceManager.Exists(path) {
+    return sgfsErr.ErrKeyNotFound
+  }
   chunkIndex := args.ChunkIndex
   info, err := ms.chunkManager.FindLocations(path, chunkIndex)
   if err != nil {
@@ -219,6 +223,8 @@ func (ms *MasterServer) GetFileLength(args string, reply *int64) error {
 func (ms *MasterServer) Kill() {
   ms.dead = true
   ms.l.Close()
+  ms.chunkManager.Store(ms.serverMeta + "-chunks")
+  ms.namespaceManager.Store(ms.serverMeta + "-namespace")
   ms.chunkManager.Stop()
 }
 
@@ -232,6 +238,10 @@ func StartMasterServer(me string, servers []string) *MasterServer {
   }
 
   loadServerMeta(ms)
+  if !StartFresh {
+    ms.chunkManager.Load(ms.serverMeta + "-chunks")
+    ms.namespaceManager.Load(ms.serverMeta + "-namespace")
+  }
 
   rpcs := rpc.NewServer()
   rpcs.Register(ms)
@@ -289,6 +299,15 @@ func StartMasterServer(me string, servers []string) *MasterServer {
       time.Sleep(10 * time.Second)
       // Remove all pending replication requests.
       ms.chunkManager.ClearReplication()
+    }
+  }()
+
+  // Checkpoint periodically
+  go func() {
+    for ms.dead == false {
+      time.Sleep(90 * time.Second)
+      ms.chunkManager.Store(ms.serverMeta + "-chunks")
+      ms.namespaceManager.Store(ms.serverMeta + "-namespace")
     }
   }()
 

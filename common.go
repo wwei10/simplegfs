@@ -18,6 +18,10 @@ const LeaseTimeout = 60 * time.Second
 const SoftLeaseTime = 1 * time.Second
 const HardLeaseTime = 30 * time.Second
 
+
+// Start fresh or not
+var StartFresh = true
+
 // Useful data structures
 type ChunkInfo struct {
   Path string

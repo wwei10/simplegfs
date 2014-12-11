@@ -1,20 +1,22 @@
 package simplegfs
 
 import (
+  "bufio"
+  "bytes"
+  "encoding/gob"
   "errors"
   "fmt"
   "io"
-  "time"
-  "bytes"
-  "encoding/gob"
-  "bufio"
-  "strings"
+  "io/ioutil"
   log "github.com/Sirupsen/logrus"
   "net"
   "net/rpc"
   "os"
   sgfsErr "github.com/wweiw/simplegfs/error"
+  "strconv"
+  "strings"
   "sync"
+  "time"
 )
 
 type ChunkServer struct {
@@ -312,6 +314,9 @@ func StartChunkServer(masterAddr string, me string, path string) *ChunkServer {
   }
   cs.l = l
 
+  if !StartFresh {
+    scan(cs, path)
+  }
 
   // RPC handler for client library.
   go func() {
@@ -601,4 +606,28 @@ func (cs *ChunkServer) applyToSecondary(args WriteArgs, reply *WriteReply) error
     }
   }
   return nil
+}
+
+// Scan the disk to reconstruct in-memory data structures.
+// Send chunk information to master.
+func scan(cs *ChunkServer, path string) {
+  files, err := ioutil.ReadDir(path)
+  if err != nil {
+    return
+  }
+  for _, info := range files {
+    name := info.Name()
+    length := info.Size()
+    log.Debugln(name, length)
+    handle, err := strconv.ParseUint(name, 10, 64)
+    if err != nil {
+      continue
+    }
+    chunkInfo := &ChunkInfo{
+      ChunkHandle: handle,
+      Length: length,
+    }
+    cs.chunks[handle] = chunkInfo
+    reportChunk(cs, chunkInfo)
+  }
 }

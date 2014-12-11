@@ -145,6 +145,10 @@ func (m *ChunkManager) GetPathIndexFromHandle(handle uint64) (PathIndex, error) 
 func (m *ChunkManager) SetChunkLocation(handle uint64, address string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
+	_, ok := m.handles[handle]
+	if !ok {
+		return errors.New("set chunk location: no handle information available")
+	}
 	info, ok := m.locations[handle]
 	if !ok {
 		info = &ChunkInfo{
@@ -181,7 +185,8 @@ func (m *ChunkManager) HandleHeartbeat(server string) {
 // Update chunkServers so that it contains only servers that are alive.
 // This function only supports single-threaded mode.
 func (m *ChunkManager) HeartbeatCheck() {
-	log.Println("heartbeat check")
+	log.Infoln("heartbeat check")
+	log.Infoln(m.chunkServers)
 	chunkServers := make([]string, 0)
 	badChunkServers := make([]string, 0)
 	for _, server := range m.chunkServers {
@@ -296,8 +301,7 @@ func (m *ChunkManager) getChunkInfo(path string, chunkIndex uint64) (*ChunkInfo,
 	info := &ChunkInfo{}
 	val, ok := m.chunks[path]
 	if !ok {
-		log.Debugln("File not found.")
-		return info, errors.New("File not found.")
+		return info, errors.New("File chunks mapping not found")
 	}
 	chunk, ok := val[chunkIndex]
 	if !ok {
@@ -332,12 +336,14 @@ func (m *ChunkManager) Store(path string) {
 		Handles: &m.handles,
 	})
 	if err != nil {
-		log.Fatal("encode error:", err)
+		log.Warnln("encode error:", err)
+		return
 	}
 	err = ioutil.WriteFile(path, data.Bytes(), FilePermRW)
 	if err != nil {
-		log.Fatal("write error:", err)
+		log.Warnln("write error:", err)
 	}
+	log.Infoln("chunk manager checkpoint")
 }
 
 func (m *ChunkManager) Load(path string) {
@@ -346,17 +352,20 @@ func (m *ChunkManager) Load(path string) {
 	var data persistentData
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
-		log.Fatal("read error:", err)
+		log.Warnln("read error:", err)
+		return
 	}
 	buffer := bytes.NewBuffer(b)
 	dec := gob.NewDecoder(buffer)
 	err = dec.Decode(&data)
 	if err != nil {
-		log.Fatal("decode error:", err)
+		log.Warnln("decode error:", err)
+		return
 	}
 	m.chunkHandle = data.Handle
 	m.chunks = *data.Chunks
 	m.handles = *data.Handles
+	log.Infoln("chunk manager data loaded")
 }
 
 // Pretty print ChunkManager instance.

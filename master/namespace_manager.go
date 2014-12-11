@@ -6,7 +6,7 @@ import (
   "errors"
   sgfsErr "github.com/wweiw/simplegfs/error"
   "io/ioutil"
-  "log"
+  log "github.com/Sirupsen/logrus"
   "strings"
   "sync"
 )
@@ -56,6 +56,13 @@ func (m *NamespaceManager) Delete(path string) (bool, error) {
   return m.remove(path)
 }
 
+// Returns true if path exists and is not a directory
+func (m *NamespaceManager) Exists(path string) bool {
+  m.mutex.Lock()
+  defer m.mutex.Unlock()
+  return m.exists(path) && !m.isDir(path)
+}
+
 // Get file length.
 func (m *NamespaceManager) GetFileLength(path string) (int64, error) {
   m.mutex.RLock()
@@ -86,13 +93,15 @@ func (m *NamespaceManager) Load(path string) {
   // ReadFile will read in entire file.
   b, err := ioutil.ReadFile(path)
   if err != nil {
-    log.Fatal("NamespaceManager read error:", err)
+    log.Warnln("NamespaceManager read error:", err)
+    return
   }
   data := bytes.NewBuffer(b)
   dec := gob.NewDecoder(data)
   err = dec.Decode(&paths)
   if err != nil {
-    log.Fatal("NamespaceManager decode error:", err)
+    log.Warnln("NamespaceManager decode error:", err)
+    return
   }
   m.paths = paths
 }
@@ -106,13 +115,15 @@ func (m *NamespaceManager) Store(path string) {
   enc := gob.NewEncoder(&data)
   err := enc.Encode(m.paths)
   if err != nil {
-    log.Fatal("NamespaceManager encode error:", err)
+    log.Warnln("NamespaceManager encode error:", err)
+    return
   }
   // WriteFile will create a new file with specified
   // permission if file doesn't exist.
   err = ioutil.WriteFile(path, data.Bytes(), FilePermRW)
   if err != nil {
-    log.Fatal("NamespaceManager write error:", err)
+    log.Warnln("NamespaceManager write error:", err)
+    return
   }
 }
 

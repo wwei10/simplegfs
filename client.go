@@ -248,13 +248,19 @@ func (c *Client) guaranteeChunkLocations(path string, chunkIndex uint64) (uint64
 
   // If cannot find chunk, add the chunk.
   if err != nil {
+    if err.Error() == sgfsErr.ErrKeyNotFound.Error() {
+      return 0, []string{}, err
+    }
     chunkHandle, chunkLocations, err = c.addChunk(path, chunkIndex)
   }
 
   // Other client might have added the chunk simultaneously,
   // must check error code. If it already exists, find the location again.
-  if err != nil && err.Error() == sgfsErr.ErrChunkExist.Error() {
-    chunkHandle, chunkLocations, err = c.findChunkLocations(path, chunkIndex)
+  if err != nil {
+    log.Debugln(err)
+    if err.Error() == sgfsErr.ErrChunkExist.Error() {
+      chunkHandle, chunkLocations, err = c.findChunkLocations(path, chunkIndex)
+    }
   }
 
   // Either some other err occurred during add Chunk, or the second
