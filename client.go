@@ -162,6 +162,10 @@ func (c *Client) Read(path string, offset uint64, bytes []byte) (n int, err erro
   if err != nil {
     return 0, err
   }
+  // If file length is zero, do nothing.
+  if fileLength == 0 {
+    return 0, err
+  }
   length := uint64(len(bytes))
   limit := min(offset + length, uint64(fileLength)) // Read should not exceed the boundary.
   startChunkIndex := offset / ChunkSize

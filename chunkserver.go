@@ -87,7 +87,7 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   }
 
   // Update chunkserver metadata.
-  cs.reportChunkInfo(chunkhandle, args.ChunkIndex, args.Path, length, off)
+  cs.reportChunkInfo(chunkhandle, length, off)
 
   // Apply the write to all secondary replicas.
   if err := cs.applyToSecondary(args, reply); err != nil {
@@ -140,8 +140,7 @@ func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error 
 
   // Update chunkserver metadata.
   length := int64(len(data))
-  cs.reportChunkInfo(args.ChunkHandle, args.ChunkIndex, args.Path,
-                           length, int64(args.Offset))
+  cs.reportChunkInfo(args.ChunkHandle, length, int64(args.Offset))
   return nil
 }
 
@@ -194,12 +193,14 @@ func (cs *ChunkServer) PushData(args PushDataArgs, reply *PushDataReply) error {
 
 // Handles chunk server RPC to replicate a chunk. Data is in replicate chunk args.
 func (cs *ChunkServer) ReplicateChunk(args ReplicateChunkArgs, reply *ReplicateChunkReply) error {
-  fmt.Println("ChunkServer: ReplicateChunk")
+  log.Debugln("ChunkServer: ReplicateChunk")
   filename := fmt.Sprintf("%d", args.Handle)
+  log.Infoln("ChunkServer: Replication", filename)
   data := args.Data
   if err := cs.applyWrite(filename, data, 0); err != nil {
     return err
   }
+  cs.reportChunkInfo(args.Handle, int64(len(data)), 0)
   return nil
 }
 
@@ -214,6 +215,7 @@ func (cs *ChunkServer) StartReplicateChunk(args StartReplicateChunkArgs, reply *
   if err != nil {
     return err
   }
+  log.Infoln("StartReplicateChunk:", filename, handle, address, argsRep)
   argsRep.Handle = handle
   argsRep.Data = bytes[:n]
   replyRep := new(StartReplicateChunkReply)
@@ -266,15 +268,13 @@ func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
   }
 
   // Update chunkserver metadata.
-  cs.reportChunkInfo(args.ChunkHandle, args.ChunkIndex, args.Path, length,
-                     chunkLength)
+  cs.reportChunkInfo(args.ChunkHandle, length, chunkLength)
 
   // Apply append to all secondary replicas.
   writeArgs := WriteArgs{
     DataId: args.DataId,
     ChunkHandle: args.ChunkHandle,
     ChunkIndex: args.ChunkIndex,
-    Path: args.Path,
     ChunkLocations: args.ChunkLocations,
     Offset: uint64(chunkLength),
   }
@@ -528,9 +528,7 @@ func (cs *ChunkServer) read(filename string, bytes []byte, offset int64) (int, e
 // reportChunkInfo is a helper function for ChunkServer.Write,
 // ChunkServer.SerializedWrite and ChunkServer.Append to update chunkserver's
 // metadata after a write request.
-func (cs *ChunkServer) reportChunkInfo(chunkhandle, chunkindex uint64,
-                                       path string,
-                                       length, offset int64) {
+func (cs *ChunkServer) reportChunkInfo(chunkhandle uint64, length, offset int64) {
   // Update chunkserver metadata.
   _, ok := cs.chunks[chunkhandle]
   // If we have never seen this chunk before,
@@ -538,9 +536,7 @@ func (cs *ChunkServer) reportChunkInfo(chunkhandle, chunkindex uint64,
   // report to Master immediately.
   if !ok {
     cs.chunks[chunkhandle] = &ChunkInfo{
-      Path: path,
       ChunkHandle: chunkhandle,
-      ChunkIndex: chunkindex,
     }
   }
   chunkInfo := cs.chunks[chunkhandle]
@@ -568,8 +564,7 @@ func (cs *ChunkServer) padChunk(fileName *string, offset int64,
   }
 
   // Update chunkserver metadata.
-  cs.reportChunkInfo(args.ChunkHandle, args.ChunkIndex, args.Path, padLength,
-                     offset)
+  cs.reportChunkInfo(args.ChunkHandle, padLength, offset)
 
   // Apply pad to all secondary replicas.
   writeArgs := WriteArgs{

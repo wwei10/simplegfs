@@ -227,7 +227,6 @@ func StartMasterServer(me string, servers []string) *MasterServer {
     me: me,
     serverMeta: "serverMeta" + me,
     clientId: 1,
-    chunkhandle: 1,
     namespaceManager: master.NewNamespaceManager(),
     chunkManager: master.NewChunkManager(servers),
   }
@@ -269,7 +268,7 @@ func StartMasterServer(me string, servers []string) *MasterServer {
   // Re-replication.
   go func() {
     for ms.dead == false {
-      time.Sleep(1 * time.Minute)
+      time.Sleep(time.Minute)
       ms.chunkManager.ScheduleReplication()
       // Sleep after lease expires
       time.Sleep(LeaseTimeout)
@@ -279,11 +278,15 @@ func StartMasterServer(me string, servers []string) *MasterServer {
         ms.chunkManager.ClearReplication()
         continue
       }
+      log.Infoln("Start replication:", handle, location, targets, err)
       for _, target := range targets {
         args := StartReplicateChunkArgs{handle, target}
         reply := new(StartReplicateChunkArgs)
+        log.Infoln("args:", args)
         call(location, "ChunkServer.StartReplicateChunk", args, reply)
       }
+      // Sleep 10 seconds for chunk servers to report their chunks.
+      time.Sleep(10 * time.Second)
       // Remove all pending replication requests.
       ms.chunkManager.ClearReplication()
     }

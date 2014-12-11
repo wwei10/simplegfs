@@ -65,7 +65,7 @@ type ChunkManager struct {
 
 func NewChunkManager(servers []string) *ChunkManager {
 	m := &ChunkManager{
-		chunkHandle:    uint64(0),
+		chunkHandle:    uint64(1),
 		chunks:         make(map[string](map[uint64]*Chunk)),
 		handles:        make(map[uint64]*PathIndex),
 		locations:      make(map[uint64]*ChunkInfo),
@@ -96,6 +96,7 @@ func (m *ChunkManager) FindLeaseHolder(handle uint64) (*Lease, error) {
 		err := m.addLease(handle)
 		// If add lease failed, return err.
 		if err != nil {
+			log.Warnln("FindLeaseHolder:", err)
 			return &Lease{}, err
 		}
 	}
@@ -167,7 +168,6 @@ func (m *ChunkManager) SetChunkLocation(handle uint64, address string) error {
 
 // Process heartbeat message and update server status.
 func (m *ChunkManager) HandleHeartbeat(server string) {
-	log.Println("handle heartbeat from", server)
 	// If haven't seen this server before,
 	// Insert server into elem.
 	if _, ok := m.heartbeats.Get(server); !ok {
@@ -192,6 +192,7 @@ func (m *ChunkManager) HeartbeatCheck() {
 			badChunkServers = append(badChunkServers, server)
 		}
 	}
+	log.Debugln("bad:", badChunkServers)
 	m.lock.Lock()
 	m.chunkServers = chunkServers
 	m.lock.Unlock()
@@ -227,11 +228,11 @@ func (m *ChunkManager) HeartbeatCheck() {
 // for re-replication.
 func (m *ChunkManager) ScheduleReplication() {
 	// Ensure there are at most m.scheduleReps is 1.
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	if len(m.scheduledReps) > 1 {
 		return
 	}
-	m.lock.Lock()
-	defer m.lock.Unlock()
 	highestSoFar := 0
 	highestHandle := uint64(0)
 	for handle, pending := range m.pendingRepMap {
@@ -240,23 +241,45 @@ func (m *ChunkManager) ScheduleReplication() {
 			highestHandle = handle
 		}
 	}
+	// If highest is 0, simply return.
+	if highestSoFar == 0 {
+		return
+	}
 	m.scheduledReps = append(m.scheduledReps, highestHandle)
+	log.Debugln("scheduleReps:", m.scheduledReps)
 }
 
 // Start replication.
 // Returns handle, location, target location
 func (m *ChunkManager) StartReplication() (uint64, string, []string, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	if len(m.scheduledReps) < 1 {
+		return 0, "", []string{}, errors.New("no need to replicate")
+	}
 	handle := m.scheduledReps[0]
-	if len(m.locations[handle].Locations) == 0 {
+	info, ok := m.locations[handle]
+	if !ok {
+		return 0, "", []string{}, errors.New("no location found")
+	}
+	if len(info.Locations) == 0 {
 		return 0, "", []string{}, errors.New("no available locaiton")
 	}
-	location := m.locations[handle].Locations[0]
+	location := info.Locations[0]
 	return handle, location, m.pendingRepMap[handle].target, nil
 }
 
 // Clear replication.
 func (m *ChunkManager) ClearReplication() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if len(m.scheduledReps) < 1 {
+		return
+	}
+	// After finishing replication, remove it.
+	handle := m.scheduledReps[0]
 	m.scheduledReps = make([]uint64, 0)
+	delete(m.pendingRepMap, handle)
 }
 
 // Release any resources it holds.
@@ -456,6 +479,7 @@ func (m *ChunkManager) addPendingReplication(handle uint64, locations []string) 
 			target:   []string{newLocation},
 		}
 	}
+	log.Debugln(pending)
 }
 
 // Get a new location to place a chunk.
@@ -491,6 +515,7 @@ func getNewLocation(servers, locations, targets []string) (string, error) {
 
 // Return true if handles contain handle.
 func find(handles []uint64, handle uint64) bool {
+	log.Debugln("find", handle, "in", handles)
 	for _, h := range handles {
 		if h == handle {
 			return true
