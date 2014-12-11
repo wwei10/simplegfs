@@ -84,6 +84,8 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   // Apply write request to local state.
   if err := cs.applyWrite(filename, data, off); err != nil {
     return err
+  } else {
+    delete(cs.data, dataId)
   }
 
   // Update chunkserver metadata.
@@ -136,6 +138,8 @@ func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error 
   filename := fmt.Sprintf("%d", args.ChunkHandle)
   if err := cs.applyWrite(filename, data, int64(args.Offset)); err != nil {
     return err
+  } else if !args.IsAppend {
+    delete(cs.data, args.DataId)
   }
 
   // Update chunkserver metadata.
@@ -249,6 +253,8 @@ func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
   // Apply write request to local state, with chunkLength as offset.
   if err := cs.applyWrite(filename, data, chunkLength); err != nil {
     return err
+  } else {
+    delete(cs.data, args.DataId)
   }
 
   // Update chunkserver metadata.
