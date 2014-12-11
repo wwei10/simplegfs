@@ -70,7 +70,7 @@ type ChunkServer struct {
 func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   log.Debugln(cs.me, "ChunkServer: Write RPC.")
   cs.mutex.Lock()
-  defer cs.mutex.Unlock()
+  log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Acquired")
 
   // Extract/define arguments.
   dataId := args.DataId
@@ -78,6 +78,8 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   off := int64(args.Offset)
   data, ok := cs.data[dataId]
   if !ok {
+    log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Released.")
+    cs.mutex.Unlock()
     return errors.New("ChunkServer.Write: requested data is not in memory")
   }
   length := int64(len(data))
@@ -85,20 +87,30 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
 
   // Apply write request to local state.
   if err := cs.applyWrite(filename, data, off); err != nil {
+    log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Released.")
+    cs.mutex.Unlock()
     return err
+  } else {
+    delete(cs.data, dataId)
   }
 
   // Update chunkserver metadata.
   cs.reportChunkInfo(chunkhandle, length, off)
 
+  cs.mutex.Unlock()
   // Apply the write to all secondary replicas.
   if err := cs.applyToSecondary(args, reply); err != nil {
+    log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Released.")
+    cs.mutex.Unlock()
     return err
   }
+  cs.mutex.Lock()
 
   // Since we are still writing to the chunk, we must continue request
   // lease extensions on the chunk.
   cs.addChunkExtensionRequest(chunkhandle)
+  log.Debugln(cs.me, "ChunkServer: Write RPC. Lock Released.")
+  cs.mutex.Unlock()
   return nil
 }
 
@@ -138,6 +150,8 @@ func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error 
   filename := fmt.Sprintf("%d", args.ChunkHandle)
   if err := cs.applyWrite(filename, data, int64(args.Offset)); err != nil {
     return err
+  } else if !args.IsAppend {
+    delete(cs.data, args.DataId)
   }
 
   // Update chunkserver metadata.
@@ -267,6 +281,8 @@ func (cs *ChunkServer) Append(args AppendArgs, reply *AppendReply) error {
   // Apply write request to local state, with chunkLength as offset.
   if err := cs.applyWrite(filename, data, chunkLength); err != nil {
     return err
+  } else {
+    delete(cs.data, args.DataId)
   }
 
   // Update chunkserver metadata.

@@ -277,7 +277,7 @@ func (c *Client) write(path string, chunkIndex, start, end uint64,
                        bytes []byte) bool {
   // Get chunkhandle and locations.
   // For auditing
-  fmt.Println(c.clientId, "write", path, chunkIndex, start, end, string(bytes))
+  // log.Debugln(c.clientId, "write", path, chunkIndex, start, end, string(bytes))
 
   // Get chunkHandle and chunkLocations
   chunkHandle, chunkLocations, err := c.guaranteeChunkLocations(path, chunkIndex)
