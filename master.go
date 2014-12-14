@@ -111,18 +111,9 @@ func (ms *MasterServer) Delete(args string,
   return err
 }
 
-// MasterServer.FindLocations
-//
-// Client calls FindLoations to get chunk locations given file name and chunk
-// index.
-//
-// param  - FindLocationsArgs: Path, name of the file.
-//                             ChunkIndex, chunk index in file.
-//          FindLocationsReply: ChunkHandle, unique id of a chunk.
-//                              ChunkLocations, chunkserver address that hold
-//                              the target chunk.
-//                              PrimaryLocation, address of the primary replica.
-// return - Appropriate error if any, nil otherwise.
+// FindLocations responds to client RPC to get the chunk clocations given file
+// name and chunk index. The FindLocationsReply contains a chunkhandle, an
+// array of chunk locations.
 func (ms *MasterServer) FindLocations(args FindLocationsArgs,
                                       reply *FindLocationsReply) error {
   log.Debugln("Find Locations RPC")
@@ -138,17 +129,10 @@ func (ms *MasterServer) FindLocations(args FindLocationsArgs,
   return nil
 }
 
-// MasterServer.FindLeaseHolder
-//
-// Client calls FindLeaseHolder to get the primary chunkserver for a given
-// chunkhandle. If there is no current lease holder, MasterServer.grantLease
-// will automatically select one of the replicas to be the primary, and grant
-// lease to that primary.
-//
-// params - FindLeaseHolderArgs: ChunkHandle, unique id of the target chunk.
-//          FindLeaseHolderReply: Primary, the lease holder of the target chunk.
-//                                LeaseEnds, the lease expiration time.
-// return - nil.
+// FindLeaseHolder replies to client RPC to get the primary chunkserver for a
+// given chunkhandle. If there is no current lease holder, chunkManager will
+// automatically select one of the replicas to be the primary, and grant lease
+// to that primary.
 func (ms *MasterServer) FindLeaseHolder(args FindLeaseHolderArgs,
                                         reply *FindLeaseHolderReply) error {
   log.Debugln("MasterServer: FindLeaseHolder RPC")
@@ -278,10 +262,7 @@ func (ms *MasterServer) tick() {
   // TODO: Scan in-memory data structures to find dead chunk servers
 }
 
-// Called whenever server's persistent meta data changes.
-//
-// param  - ms: pointer to a MasterServer instance
-// return - none
+// storeServerMeta stores master server's meta data persistently.
 func storeServerMeta(ms *MasterServer) {
   f, er := os.OpenFile(ms.serverMeta, os.O_RDWR|os.O_CREATE, FilePermRW)
   if er != nil {
@@ -293,11 +274,7 @@ func storeServerMeta(ms *MasterServer) {
   storeClientId(ms, f)
 }
 
-// Store MasterServer.clientId on to MasterServer.serverMeta
-//
-// param  - ms: a pointer to a MasterServer instance
-//          f: a pointer to os.File serverMeta
-// return - none
+// storeClientId stores MasterServer.clientId on to MasterServer.serverMeta.
 func storeClientId(ms *MasterServer, f *os.File) {
   n, err := f.WriteString("clientId " +
                           strconv.FormatUint(ms.clientId, 10) + "\n")
@@ -308,11 +285,8 @@ func storeClientId(ms *MasterServer, f *os.File) {
   }
 }
 
-// Called by StartMasterServer when starting a new MasterServer instance ms,
-// loads serverMeta files into ms.
-//
-// param  - ms: pointer to a MasterServer instance
-// return - none
+// loadServerMeta loads MasterServer.serverMeta from disk to instantiate
+// master server's meta data.
 func loadServerMeta(ms *MasterServer) {
   f, err := os.OpenFile(ms.serverMeta, os.O_RDONLY, FilePermRW)
   if err != nil {
@@ -322,13 +296,8 @@ func loadServerMeta(ms *MasterServer) {
   parseServerMeta(ms, f)
 }
 
-// Called by loadServerMeta
-// This function parses each line in serverMeta file and loads each value
-// into its corresponding MasterServer fields
-//
-// param  - ms: pointer to a MasterServer instance
-//          f: point to the file that contains serverMeta
-// return - none
+// parseServerMeta parses each line in MasterServer.serverMeta file and loads
+// each value into its corresponding MasterServer instance fields.
 func parseServerMeta(ms *MasterServer, f *os.File) {
   scanner := bufio.NewScanner(f)
   for scanner.Scan() {
@@ -346,18 +315,10 @@ func parseServerMeta(ms *MasterServer, f *os.File) {
   }
 }
 
-// MasterServer.csExtendLease
-//
-// Called by Heartbeat RPC handler, when chunkservers heartbeat message includes
-// lease extension requests.
-// Lease extensions are only granted when the requesting chunkserver is the
-// primary replica.
+// csExtendLease is called by the Heartbeat RPC handler, when chunkservers
+// hearbeat message includes lease extension requests. Lease extensions are
+// only granted when the requesting chunk server is the current lease holder.
 // This function acquires MasterServer.mutex.
-//
-// params - cs: Chunkserver's address.
-//          chunks: A list of chunkhandles the chunkserver wants lease
-//                  extensions on.
-// return - None.
 func (ms *MasterServer) csExtendLease(cs string, chunks []uint64) {
   ms.chunkManager.ExtendLease(cs, chunks)
 }
