@@ -50,21 +50,10 @@ type ChunkServer struct {
 
 // RPC handler declared here
 
-// ChunkServer.Write
-//
-// Handles client RPC write requests to the primary chunk. The primary first
-// applies requested write to its local state, serializes and records the order
-// of application in ChunkServer.writeRequests, then sends the write requests
-// to secondary replicas.
-//
-// params - WriteArgs: DataId, identifies the data stores in ChunkServer.data
-//                     ChunkHanlde, unique ID of the chunk being write to.
-//                     ChunkIndex, chunk's position in its file.
-//                     Offset, offset within the chunk.
-//                     Path, name of the file.
-//                     Chunklocations, replicas that store the chunk.
-//          WriteReply: None.
-// return - Appropriate error if any, nil otherwise.
+// Write handles client RPC write requests to the primary chunk. The primary
+// first applies requested write to its local storage, serializes and records
+// the order of application in ChunkServer.writeRequests, then sends the write
+// requests to secondary replicas.
 func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   log.Debugln(cs.me, "ChunkServer: Write RPC.")
   cs.mutex.Lock()
@@ -112,18 +101,8 @@ func (cs *ChunkServer) Write(args WriteArgs, reply *WriteReply) error {
   return nil
 }
 
-// ChunkServer.SerializedWrite
-//
-// RPC handler for primary chunkservers to send write requests to secondary
-// chunkservers.
-//
-// params - WriteArgs: DataId, identifies the data stores in ChunkServer.data
-//                     ChunkHanlde, unique ID of the chunk being write to.
-//                     ChunkIndex, chunk's position in its file.
-//                     Offset, offset within the chunk.
-//                     Path, name of the file.
-//          WriteReply: None.
-// return - Appropriate error if any, nil otherwise.
+// SerializedWrite handles RPC calls from primary replica's write requests to
+// secondary replicas.
 func (cs *ChunkServer) SerializedWrite(args WriteArgs, reply *WriteReply) error {
   log.Debugln(cs.me, "ChunkServer: SerializedWrite RPC")
   cs.mutex.Lock()
@@ -193,16 +172,8 @@ func (cs *ChunkServer) Kill() {
   cs.l.Close()
 }
 
-// ChunkServer.PushData
-//
-// Handles client RPC to store data in memory. Data is identified with a
-// mapping from DataID:[ClientID, Timestamp] -> Data.
-// This function acquires lock on ChunkServer.dataMutex
-//
-// params - PushDataArgs: ClientId, client's ID.
-//                        Timestamp, client assigned timestamp, monotonically
-//                        increasing on each client instance.
-// return - nil.
+// PushData handles client RPC to store data in memory. Data is identified with
+// a mapping from DataId:[ClientID, Timestamep] -> Data.
 func (cs *ChunkServer) PushData(args PushDataArgs, reply *PushDataReply) error {
   log.Debugln("ChunkServer: PushData RPC")
   dataId := args.DataId
@@ -365,10 +336,8 @@ func reportChunk(cs *ChunkServer, info *ChunkInfo) {
   go call(cs.masterAddr, "MasterServer.ReportChunk", args, reply)
 }
 
-// Chunkserver meta data is laoded in StartChunkServer
-//
-// param  - c: a pointer to a ChunkServer instance
-// return - none
+// loadChunkServerMeta loads chunk server's meta data when called by
+// StartChunkServer.
 func loadChunkServerMeta (c *ChunkServer) {
   f, err := os.Open(c.chunkServerMeta)
   if err != nil {
@@ -378,13 +347,8 @@ func loadChunkServerMeta (c *ChunkServer) {
   parseChunkServerMeta(f, c)
 }
 
-// Called by loadChunkServerMeta
-// This function parses each line in chunkServerMeta file and loads each value
-// into its correspoding ChunkServer fields
-//
-// param  - c: a pointer to a ChunkServer instance
-//          f: a pointer to the file chunkServerMeta
-// return - none
+// parseChunkServerMeta parses each line in chunkServerMeta file and loads
+// each value into its corresponding ChunkServer instance fields.
 func parseChunkServerMeta(f *os.File, c *ChunkServer) {
   scanner := bufio.NewScanner(f)
   for scanner.Scan() {
@@ -401,10 +365,7 @@ func parseChunkServerMeta(f *os.File, c *ChunkServer) {
   }
 }
 
-// To store chunk server meta data on disk.
-//
-// param  - c: a pointer to a ChunkServer instance
-// return - none
+// storeChunkServerMeta stores chunk server meta data on disk.
 func storeChunkServerMeta (c *ChunkServer) {
   f, er := os.OpenFile(c.chunkServerMeta, os.O_RDWR|os.O_CREATE, FilePermRW)
   if er != nil {
@@ -416,12 +377,8 @@ func storeChunkServerMeta (c *ChunkServer) {
   storeChunkhandle2VersionNum(c, f)
 }
 
-// Store chunckhanle to file version number mapping from
+// storeChunkhandle2VersionNum Store chunckhandle to file version number mapping from
 // ChunkServer.chunkhandle2VersionNum to ChunkServer.chunkServerMeta.
-//
-// param  - c: a pointer to a ChunkServer instance
-//          f: a pointer to the file chunkServerMeta
-// return - none
 func storeChunkhandle2VersionNum (c *ChunkServer, f *os.File) {
   b := encodeMap(&c.chunkhandle2VersionNum)
   n, err := f.WriteString("chunkhandle2VersionNum " + b.String() + "\n")
@@ -432,10 +389,7 @@ func storeChunkhandle2VersionNum (c *ChunkServer, f *os.File) {
   }
 }
 
-// Encode a uint64 -> uint64 map into bytes.Buffer
-//
-// param  - m: the map to be encoded
-// return - bytes.Buffer containing the encoded map
+// encodeMap encodes a uint64 -> uint64 map into bytes.Buffer
 func encodeMap(m *map[uint64]uint64) *bytes.Buffer {
   b := new(bytes.Buffer)
   e := gob.NewEncoder(b)
@@ -446,10 +400,7 @@ func encodeMap(m *map[uint64]uint64) *bytes.Buffer {
   return b
 }
 
-// Decode a bytes.Buffer into a uint64 -> uint64 map
-//
-// param  - b: bytes.Buffer containing the encoded map
-// return - the encoded map
+// decodeMap decodes a bytes.Buffer into a uint64 -> uint64 map
 func decodeMap(b *bytes.Buffer) map[uint64]uint64 {
   d := gob.NewDecoder(b)
   var decodedMap map[uint64]uint64
@@ -460,16 +411,10 @@ func decodeMap(b *bytes.Buffer) map[uint64]uint64 {
   return decodedMap
 }
 
-// ChunkServer.addChunkExtensionRequest
-//
-// Called by ChunkServer.Write.
-// Add chunkhandle and time of write request to Chunkserver.pendingExtensions.
-// These requests are batched together and piggybacked onto Heartbeat messages
-// with the master.
-// Note: ChunkServer.mutex is held by ChunkServer.Write.
-//
-// params - chunkHandle: Unique ID for the chunk to be request extension on.
-// return - None.
+// addChunkExtensionRequests add chunkhandle and time of write request to
+// ChunkServer.pendingExtensions. These requests are batched together and
+// piggybacked onto Heartbeat messages with the master.
+// Note: ChunkServer.mutex must be held before calling this function.
 func (cs *ChunkServer) addChunkExtensionRequest(chunkHandle uint64) {
   cs.pendingExtensionsLock.Lock()
   defer cs.pendingExtensionsLock.Unlock()
@@ -482,17 +427,9 @@ func (cs *ChunkServer) addChunkExtensionRequest(chunkHandle uint64) {
   cs.pendingExtensions = append(cs.pendingExtensions, chunkHandle)
 }
 
-// ChunkServer.applyWrite
-//
-// Helper function for ChunkServer.Write(primary chunkserver) and
-// ChunkServer.SerializedWrite(secondary chunkserver) to apply writes from
-// memory to local state.
-// Note: ChunkServer.mutex is held by the caller.
-//
-// params - filename: Chunkhandle's string representation, on disk file name.
-//          data: In memory data to be written to disk.
-//          offset: Staring offset for writes.
-// return - Appropriate error if any, nil otherwise.
+// applyWrite is a helper function for Write and SerializedWrite to apply
+// writes from memory to local storage.
+// Note: ChunkServer.mutex must be held before calling this function.
 func (cs *ChunkServer) applyWrite(filename string, data []byte, offset int64) error {
   // Open file that stores the chunk.
   file, err := os.OpenFile(cs.path + "/" + filename, os.O_WRONLY | os.O_CREATE,
