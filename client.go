@@ -343,14 +343,9 @@ func (c *Client) findChunkLocations(path string, chunkIndex uint64) (uint64, []s
   return reply.ChunkHandle, reply.ChunkLocations, err
 }
 
-// Client.findLeaseHolder
-//
-// First check with Client.leaseHolderCache, if not found, RPC master server
-// with chunkhandle to find the current lease holder of the target chunk.
-//
-// params - chunkhandle: Unique ID of the target chunk.
-// return - string: Location of the primary chunkserver if successful, nil
-//                  otherwise.
+// findLeaseHolder first check with leaseHolderCache, if a lease holder is not
+// found, RPC master server with chunkhandle to find the current lease holder
+// of the target chunk.
 func (c *Client) findLeaseHolder(chunkhandle uint64) string {
   // First check with the leaseHolderCache
   key := fmt.Sprintf("%d", chunkhandle)
